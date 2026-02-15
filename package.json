@@ -1,0 +1,16 @@
+{
+  "name": "yasb-ai-usages",
+  "version": "1.0.0",
+  "description": "Local dashboard for tracking AI service usage across ChatGPT, Copilot, Claude, Ollama, and Z.AI",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "dependencies": {
+    "express": "^4.21.0",
+    "ollama": "^0.5.14"
+  },
+  "keywords": ["yasb", "ai", "usage", "dashboard", "chatgpt", "copilot", "claude", "ollama"],
+  "license": "MIT"
+}

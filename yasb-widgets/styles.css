@@ -1,0 +1,72 @@
+/* YASB AI Usage Widget Styles */
+/* Add these to your YASB styles.yaml or styles.css */
+
+/* Grouped widget container */
+.ai-usage-group {
+  margin: 0 4px;
+  padding: 0 6px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+/* Platform accent colors */
+.ai-chatgpt { color: #10b981; }
+.ai-copilot { color: #58a6ff; }
+.ai-claude { color: #e09145; }
+.ai-ollama { color: #a78bfa; }
+.ai-zai { color: #4f8cff; }
+
+/* Widget labels */
+.ai-chatgpt .label,
+.ai-copilot .label,
+.ai-claude .label,
+.ai-ollama .label,
+.ai-zai .label {
+  font-family: "JetBrainsMono Nerd Font", "JetBrains Mono", monospace;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 6px;
+  margin: 0 2px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.ai-chatgpt .label { border-bottom: 2px solid #10b981; }
+.ai-copilot .label { border-bottom: 2px solid #58a6ff; }
+.ai-claude .label { border-bottom: 2px solid #e09145; }
+.ai-ollama .label { border-bottom: 2px solid #a78bfa; }
+.ai-zai .label { border-bottom: 2px solid #4f8cff; }
+
+/* Combined widget style */
+.ai-usage-combined .label {
+  font-family: "JetBrainsMono Nerd Font", "JetBrains Mono", monospace;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+/* Warning states (high usage) */
+.ai-chatgpt .widget.warning,
+.ai-copilot .widget.warning,
+.ai-claude .widget.warning,
+.ai-ollama .widget.warning,
+.ai-zai .widget.warning {
+  color: #f59e0b;
+}
+
+/* Critical states (usage > 85%) */
+.ai-chatgpt .widget.critical,
+.ai-copilot .widget.critical,
+.ai-claude .widget.critical,
+.ai-ollama .widget.critical,
+.ai-zai .widget.critical {
+  color: #ef4444;
+  animation: pulse 2s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}

@@ -1,0 +1,145 @@
+# YASB Widget Configuration
+# Copy these widget definitions into your YASB config.yaml
+
+# ━━━ OPTION 1: Grouped widget (RECOMMENDED) ━━━━━━━━━━━━━━━━━━━━
+# A collapsible container showing all 5 platforms with accent colors.
+# Left-click toggles compact/detailed. Right-click opens dashboard.
+#
+# Add ONLY "ai_usage_group" to your bar widgets:
+#   widgets_right: ["ai_usage_group", "volume", "clock"]
+
+  ai_usage_group:
+    type: "yasb.grouper.GrouperWidget"
+    options:
+      class_name: "ai-usage-group"
+      widgets: ["ai_chatgpt", "ai_copilot", "ai_claude", "ai_ollama", "ai_zai"]
+      collapse_options:
+        enabled: true
+        exclude_widgets: ["ai_chatgpt"]
+        expanded_label: "\uf053"
+        collapsed_label: "\uf054"
+        label_position: "right"
+
+  ai_chatgpt:
+    type: "yasb.custom.CustomWidget"
+    options:
+      label: "<span>\udb80\udcab</span> {data[chatgpt_session]}%"
+      label_alt: "<span>\udb80\udcab</span> GPT {data[chatgpt_session]}% | {data[chatgpt_weekly]}%w"
+      class_name: "ai-chatgpt"
+      label_placeholder: "\udb80\udcab --"
+      tooltip: true
+      tooltip_label: "ChatGPT Plus\nSession: {data[chatgpt_session]}%\nWeekly: {data[chatgpt_weekly]}%"
+      exec_options:
+        run_cmd: "curl.exe -s http://localhost:3456/api/yasb/summary"
+        run_interval: 120000
+        return_format: "json"
+        hide_empty: false
+      callbacks:
+        on_left: "toggle_label"
+        on_middle: "do_nothing"
+        on_right: "exec cmd /c start http://localhost:3456"
+
+  ai_copilot:
+    type: "yasb.custom.CustomWidget"
+    options:
+      label: "<span>\uf113</span> {data[copilot_pct]}%"
+      label_alt: "<span>\uf113</span> Cop {data[copilot_used]}/{data[copilot_total]}"
+      class_name: "ai-copilot"
+      label_placeholder: "\uf113 --"
+      tooltip: true
+      tooltip_label: "GitHub Copilot Pro\nUsed: {data[copilot_used]}/{data[copilot_total]} premium\nPercent: {data[copilot_pct]}%"
+      exec_options:
+        run_cmd: "curl.exe -s http://localhost:3456/api/yasb/summary"
+        run_interval: 120000
+        return_format: "json"
+        hide_empty: false
+      callbacks:
+        on_left: "toggle_label"
+        on_middle: "do_nothing"
+        on_right: "exec cmd /c start http://localhost:3456"
+
+  ai_claude:
+    type: "yasb.custom.CustomWidget"
+    options:
+      label: "<span>\udb81\ude2e</span> {data[claude_session]}%"
+      label_alt: "<span>\udb81\ude2e</span> Cla {data[claude_session]}% | {data[claude_weekly]}%w"
+      class_name: "ai-claude"
+      label_placeholder: "\udb81\ude2e --"
+      tooltip: true
+      tooltip_label: "Claude Pro\nSession: {data[claude_session]}%\nWeekly: {data[claude_weekly]}%"
+      exec_options:
+        run_cmd: "curl.exe -s http://localhost:3456/api/yasb/summary"
+        run_interval: 120000
+        return_format: "json"
+        hide_empty: false
+      callbacks:
+        on_left: "toggle_label"
+        on_middle: "do_nothing"
+        on_right: "exec cmd /c start http://localhost:3456"
+
+  ai_ollama:
+    type: "yasb.custom.CustomWidget"
+    options:
+      label: "<span>\uf201</span> {data[ollama_session]}%"
+      label_alt: "<span>\uf201</span> Oll {data[ollama_session]}% | {data[ollama_weekly]}%w"
+      class_name: "ai-ollama"
+      label_placeholder: "\uf201 --"
+      tooltip: true
+      tooltip_label: "Ollama\nSession: {data[ollama_session]}%\nWeekly: {data[ollama_weekly]}%"
+      exec_options:
+        run_cmd: "curl.exe -s http://localhost:3456/api/yasb/summary"
+        run_interval: 120000
+        return_format: "json"
+        hide_empty: false
+      callbacks:
+        on_left: "toggle_label"
+        on_middle: "do_nothing"
+        on_right: "exec cmd /c start http://localhost:3456"
+
+  ai_zai:
+    type: "yasb.custom.CustomWidget"
+    options:
+      label: "<span>\udb80\udea8</span> {data[zai_token_pct]}%"
+      label_alt: "<span>\udb80\udea8</span> Z.AI Tk {data[zai_token_pct]}% | MCP {data[zai_mcp_pct]}%"
+      class_name: "ai-zai"
+      label_placeholder: "\udb80\udea8 --"
+      tooltip: true
+      tooltip_label: "Z.AI GLM Coding\nToken (5h): {data[zai_token_pct]}%\nMCP (Monthly): {data[zai_mcp_pct]}%"
+      exec_options:
+        run_cmd: "curl.exe -s http://localhost:3456/api/yasb/summary"
+        run_interval: 120000
+        return_format: "json"
+        hide_empty: false
+      callbacks:
+        on_left: "toggle_label"
+        on_middle: "do_nothing"
+        on_right: "exec cmd /c start http://localhost:3456"
+
+
+# ━━━ OPTION 2: Single combined widget (simpler) ━━━━━━━━━━━━━━━━
+# One compact widget showing all platforms at once.
+# Add "ai_usage" to your bar widgets list instead of "ai_usage_group".
+
+#  ai_usage:
+#    type: "yasb.custom.CustomWidget"
+#    options:
+#      label: "<span>\udb80\udcab</span> GPT {data[chatgpt_session]}% | Cop {data[copilot_pct]}% | Cla {data[claude_session]}% | Oll {data[ollama_session]}% | Z {data[zai_token_pct]}%"
+#      label_alt: "<span>\udb80\udcab</span> GPT {data[chatgpt_session]}/{data[chatgpt_weekly]}% | Cop {data[copilot_used]}/{data[copilot_total]} | Cla {data[claude_session]}/{data[claude_weekly]}% | Oll {data[ollama_session]}/{data[ollama_weekly]}% | Z Tk{data[zai_token_pct]}%/MCP{data[zai_mcp_pct]}%"
+#      class_name: "ai-usage-combined"
+#      label_placeholder: "\udb80\udcab Loading..."
+#      tooltip: true
+#      tooltip_label: "AI Command Center\nChatGPT: {data[chatgpt_session]}% session / {data[chatgpt_weekly]}% weekly\nCopilot: {data[copilot_used]}/{data[copilot_total]} premium\nClaude: {data[claude_session]}% session / {data[claude_weekly]}% weekly\nOllama: {data[ollama_session]}% session / {data[ollama_weekly]}% weekly\nZ.AI: Token {data[zai_token_pct]}% / MCP {data[zai_mcp_pct]}%"
+#      exec_options:
+#        run_cmd: "curl.exe -s http://localhost:3456/api/yasb/summary"
+#        run_interval: 120000
+#        return_format: "json"
+#        hide_empty: false
+#      callbacks:
+#        on_left: "toggle_label"
+#        on_middle: "do_nothing"
+#        on_right: "exec cmd /c start http://localhost:3456"
+#      label_shadow:
+#        enabled: true
+#        color: "black"
+#        radius: 3
+#        offset: [1, 1]

@@ -1,0 +1,1263 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>AI Usage Dashboard</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='32' y2='32' gradientUnits='userSpaceOnUse'%3E%3Cstop offset='0' stop-color='%23a78bfa'/%3E%3Cstop offset='.5' stop-color='%2310b981'/%3E%3Cstop offset='1' stop-color='%234f8cff'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='32' height='32' rx='8' fill='%230b0b10'/%3E%3Cpath d='M8 22V14a8 8 0 0116 0v8' stroke='url(%23g)' stroke-width='2.5' fill='none' stroke-linecap='round'/%3E%3Ccircle cx='12' cy='20' r='2' fill='%23a78bfa'/%3E%3Ccircle cx='20' cy='20' r='2' fill='%2310b981'/%3E%3Ccircle cx='16' cy='16' r='2' fill='%234f8cff'/%3E%3C/svg%3E"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet"/>
+<style>
+:root{
+  --bg:#060609;--s1:#0b0b10;--s2:#101016;--s3:#16161d;--s4:#1c1c25;
+  --b1:rgba(255,255,255,.04);--b2:rgba(255,255,255,.07);--b3:rgba(255,255,255,.12);
+  --t1:#ededf2;--t2:#8e8e9a;--t3:#58586a;--t4:#363643;
+  --chatgpt:#10b981;--copilot:#58a6ff;--claude:#e09145;--ollama:#a78bfa;--zai:#4f8cff;
+  --red:#ef4444;--green:#22c55e;--amber:#f59e0b;
+  --r:14px;--rs:8px;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:"Inter",system-ui,sans-serif;background:var(--bg);color:var(--t1);min-height:100vh;overflow-x:hidden;-webkit-font-smoothing:antialiased}
+.mono{font-family:"JetBrains Mono",monospace}
+::-webkit-scrollbar{width:3px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:var(--s4);border-radius:2px}
+
+.c{background:var(--s1);border:1px solid var(--b1);border-radius:var(--r);position:relative;overflow:hidden;transition:border-color .2s,box-shadow .2s,transform .2s}
+.c:hover{border-color:var(--b2);box-shadow:0 4px 24px rgba(0,0,0,.2)}
+.c>.accent{position:absolute;top:0;left:0;right:0;height:1px}
+.cp{padding:20px}
+
+.btn{display:inline-flex;align-items:center;gap:5px;padding:7px 14px;border-radius:var(--rs);
+  font:600 10.5px/1 "Inter",sans-serif;letter-spacing:.3px;border:1px solid var(--b2);
+  background:var(--s2);color:var(--t2);cursor:pointer;transition:all .15s;text-decoration:none;white-space:nowrap}
+.btn:hover{border-color:var(--b3);color:var(--t1);background:var(--s3);transform:translateY(-1px)}
+.btn:active{transform:translateY(0)}
+.btn-p{background:rgba(255,255,255,.06);color:var(--t1);border-color:var(--b3)}
+
+.ch{display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:20px;font:600 9.5px/1 "Inter",sans-serif;letter-spacing:.2px}
+.ch-ok{background:rgba(34,197,94,.06);border:1px solid rgba(34,197,94,.1);color:#4ade80}
+.ch-err{background:rgba(239,68,68,.05);border:1px solid rgba(239,68,68,.1);color:#f87171}
+.ch-off{background:var(--s3);border:1px solid var(--b1);color:var(--t4)}
+.ch-plan{background:rgba(99,102,241,.06);border:1px solid rgba(99,102,241,.1);color:#a5b4fc;text-transform:uppercase;letter-spacing:.8px}
+
+.dot{width:5px;height:5px;border-radius:50%;flex-shrink:0}
+.dot-g{background:var(--green);box-shadow:0 0 6px rgba(34,197,94,.4)}
+.dot-r{background:var(--red);box-shadow:0 0 6px rgba(239,68,68,.4)}
+.dot-a{background:var(--amber)}
+
+.pbar{height:6px;border-radius:3px;background:var(--s4);overflow:hidden}
+.pfill{height:100%;border-radius:3px;transition:width .7s cubic-bezier(.16,1,.3,1)}
+
+.lbl{font:700 8.5px/1 "Inter",sans-serif;text-transform:uppercase;letter-spacing:2px;color:var(--t4)}
+
+.tabs{display:flex;gap:1px;border-bottom:1px solid var(--b1)}
+.tab{padding:9px 15px;font:500 11.5px/1 "Inter",sans-serif;color:var(--t3);cursor:pointer;border:none;background:none;position:relative;transition:color .15s}
+.tab:hover{color:var(--t2)}.tab.on{color:var(--t1);font-weight:700}
+.tab.on::after{content:"";position:absolute;bottom:-1px;left:10px;right:10px;height:2px;border-radius:1px}
+
+.gauge{position:relative;display:inline-flex;align-items:center;justify-content:center}
+.gauge svg{transform:rotate(-90deg)}
+.gauge-lbl{position:absolute;display:flex;flex-direction:column;align-items:center;line-height:1.1}
+
+@keyframes fu{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+.anim{animation:fu .4s cubic-bezier(.16,1,.3,1) both}
+.a1{animation-delay:50ms}.a2{animation-delay:100ms}.a3{animation-delay:150ms}.a4{animation-delay:200ms}
+@keyframes spin{to{transform:rotate(360deg)}}.spin{animation:spin .6s linear infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}.pulse{animation:pulse 2s ease-in-out infinite}
+@keyframes shimmer{0%{background-position:-200% 0}100%{background-position:200% 0}}
+.shimmer{background:linear-gradient(90deg,var(--s3) 25%,var(--s4) 50%,var(--s3) 75%);background-size:200% 100%;animation:shimmer 1.5s ease-in-out infinite}
+@keyframes fadeIn{from{opacity:0}to{opacity:1}}.fade-in{animation:fadeIn .3s ease both}
+
+/* Card loading skeleton */
+.card-loading{min-height:120px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px}
+.card-loading .spinner{width:18px;height:18px;border:2px solid var(--s4);border-top-color:var(--t3);border-radius:50%;animation:spin .6s linear infinite}
+.card-loading .loading-text{font-size:10px;color:var(--t4);letter-spacing:.5px}
+
+/* Refresh button per card */
+.card-refresh{position:absolute;top:12px;right:12px;width:24px;height:24px;border-radius:6px;border:1px solid var(--b1);background:var(--s2);
+  color:var(--t3);cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .15s;z-index:2;opacity:0}
+.c:hover .card-refresh{opacity:1}
+.card-refresh:hover{border-color:var(--b3);color:var(--t1);background:var(--s3)}
+.card-refresh.spinning svg{animation:spin .6s linear infinite}
+
+.ov{position:fixed;inset:0;z-index:200;background:rgba(0,0,0,.6);backdrop-filter:blur(8px);display:flex;align-items:center;justify-content:center}
+.modal{background:var(--s1);border:1px solid var(--b2);border-radius:16px;padding:24px;width:480px;max-width:92vw;max-height:90vh;overflow-y:auto}
+
+input[type="text"],input[type="password"]{width:100%;padding:8px 12px;border-radius:var(--rs);border:1px solid var(--b2);background:var(--bg);color:var(--t1);font:11px "JetBrains Mono",monospace;outline:none;transition:border .15s}
+input:focus{border-color:var(--b3)}
+label{display:block;font:600 10.5px/1 "Inter",sans-serif;color:var(--t2);margin-bottom:5px}
+.hint{font-size:9.5px;color:var(--t4);margin-top:3px;line-height:1.5}.hint a{color:var(--ollama);text-decoration:underline}
+
+.g2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.g3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px}
+.g4{display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:12px}
+@media(max-width:800px){.g3,.g4{grid-template-columns:1fr 1fr}}
+@media(max-width:550px){.g2,.g3,.g4{grid-template-columns:1fr}}
+
+.stat{padding:14px;border-radius:var(--rs);background:var(--bg);border:1px solid var(--b1);text-align:center}
+.stat .sv{font-family:"JetBrains Mono";font-size:22px;font-weight:700;letter-spacing:-.5px;line-height:1}
+.stat .sl{font:700 8px/1 "Inter",sans-serif;text-transform:uppercase;letter-spacing:1.5px;color:var(--t4);margin-top:5px}
+
+.dr{display:flex;align-items:center;justify-content:space-between;padding:8px 12px;border-radius:var(--rs);background:var(--bg);border:1px solid var(--b1)}
+
+/* Overview grid - responsive */
+.overview-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px}
+@media(max-width:620px){.overview-grid{grid-template-columns:1fr}}
+
+/* Empty state */
+.empty-state{text-align:center;padding:60px 20px}
+.empty-state .icon{width:48px;height:48px;border-radius:16px;display:flex;align-items:center;justify-content:center;margin:0 auto 16px;font-size:20px;opacity:.3}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script>
+// ━━━ STATE ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+const S={
+  initialLoad:true,
+  tab:"overview",
+  modal:null,
+  config:null,
+  platforms:null,
+  // Per-service state: {data, loading, error, lastRefresh}
+  chatgpt:{data:null,loading:true,lastRefresh:null},
+  copilot:{data:null,loading:true,lastRefresh:null},
+  claude:{data:null,loading:true,lastRefresh:null},
+  ollama:{data:null,loading:true,lastRefresh:null},
+  zai:{data:null,loading:true,lastRefresh:null},
+};
+const $=s=>document.querySelector(s);
+const h=s=>(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+const fmt=v=>v==null?"\u2014":typeof v==="number"?v.toLocaleString():v;
+const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+const fmtDur=s=>{if(!s||s<=0)return"--";if(s<60)return Math.round(s)+"s";if(s<3600)return Math.floor(s/60)+"m "+Math.round(s%60)+"s";const hh=Math.floor(s/3600);return hh+"h "+Math.floor((s%3600)/60)+"m"};
+const fmtAgo=d=>{if(!d)return"";const ms=Date.now()-new Date(d).getTime();if(ms<60000)return"just now";if(ms<3600000)return Math.floor(ms/60000)+"m ago";return Math.floor(ms/3600000)+"h ago"};
+const timeUntil=iso=>{if(!iso)return"--";const ms=new Date(iso)-Date.now();if(ms<=0)return"now";return fmtDur(ms/1000)};
+
+async function api(u,o){try{const r=await fetch(u,o);return r.json()}catch(e){return{error:e.message}}}
+
+// ── SVG Gauge ──
+function gauge(pct,color,sz=90,sw=6,label){
+  const v=clamp(pct,0,100);const r=(sz-sw)/2;const c=2*Math.PI*r;const d=c*v/100;
+  const col=v>85?"var(--red)":v>65?"var(--amber)":color;
+  return`<div class="gauge" style="width:${sz}px;height:${sz}px">
+    <svg width="${sz}" height="${sz}" viewBox="0 0 ${sz} ${sz}">
+      <circle cx="${sz/2}" cy="${sz/2}" r="${r}" fill="none" stroke="var(--s4)" stroke-width="${sw}" opacity=".4"/>
+      <circle cx="${sz/2}" cy="${sz/2}" r="${r}" fill="none" stroke="${col}" stroke-width="${sw}"
+        stroke-dasharray="${d} ${c-d}" stroke-linecap="round" style="transition:stroke-dasharray .7s cubic-bezier(.16,1,.3,1)"/>
+    </svg>
+    <div class="gauge-lbl">
+      <span class="mono" style="font-size:${sz>80?17:13}px;font-weight:700;color:${col}">${Math.round(v)}%</span>
+      ${label?`<span style="font-size:${sz>80?8:7}px;color:var(--t3);font-weight:600;margin-top:1px">${label}</span>`:""}
+    </div>
+  </div>`;
+}
+
+function pbar(pct,color,h=6){
+  const v=clamp(pct,0,100);const col=v>85?"var(--red)":v>65?"var(--amber)":color;
+  return`<div class="pbar" style="height:${h}px"><div class="pfill" style="width:${v}%;background:${col}"></div></div>`;
+}
+
+function refreshIcon(){
+  return`<svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M1 1v5h5"/><path d="M3.51 10a6 6 0 1 0 .34-5.37L1 6"/></svg>`;
+}
+
+// ━━━ INDIVIDUAL LOADERS ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+const serviceEndpoints={
+  chatgpt:"/api/chatgpt/usage",
+  copilot:"/api/copilot/usage",
+  claude:"/api/claude/usage",
+  ollama:"/api/ollama/usage",
+  zai:"/api/zai/usage",
+};
+
+async function loadService(id){
+  S[id].loading=true;
+  render();
+  const data=await api(serviceEndpoints[id]);
+  S[id]={data,loading:false,lastRefresh:new Date()};
+  render();
+}
+
+async function loadConfig(){
+  const[config,platforms]=await Promise.all([
+    api("/api/config"),api("/api/platforms"),
+  ]);
+  S.config=config;S.platforms=platforms;
+}
+
+async function loadAll(){
+  await loadConfig();
+  // Fire all service loads in parallel - each renders independently
+  const ids=["chatgpt","copilot","claude","ollama","zai"];
+  ids.forEach(id=>{S[id].loading=true;});
+  render();
+  // Each one resolves independently
+  ids.forEach(id=>{
+    api(serviceEndpoints[id]).then(data=>{
+      S[id]={data,loading:false,lastRefresh:new Date()};
+      if(S.initialLoad){
+        const allDone=ids.every(i=>!S[i].loading);
+        if(allDone)S.initialLoad=false;
+      }
+      render();
+    });
+  });
+}
+
+async function refreshService(id,evt){
+  if(evt){evt.stopPropagation();evt.preventDefault();}
+  loadService(id);
+}
+
+async function refreshAll(){
+  const ids=configuredServices();
+  ids.forEach(id=>{S[id].loading=true;});
+  render();
+  ids.forEach(id=>{
+    api(serviceEndpoints[id]).then(data=>{
+      S[id]={data,loading:false,lastRefresh:new Date()};
+      render();
+    });
+  });
+}
+
+async function saveCfg(data){await api("/api/config",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(data)});S.modal=null;await loadConfig();loadAll();}
+setInterval(()=>{refreshAll()},120000);
+
+// ━━━ HELPERS ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+function configuredServices(){
+  const ids=["chatgpt","copilot","claude","ollama","zai"];
+  return ids.filter(id=>{
+    const d=S[id]?.data;
+    return d&&d.configured;
+  });
+}
+
+function isOk(id){
+  const d=S[id]?.data;if(!d)return false;
+  return d.configured&&!d.error;
+}
+
+function isConfigured(id){
+  const d=S[id]?.data;
+  return d&&d.configured;
+}
+
+function statusChip(id){
+  if(S[id]?.loading)return`<span class="ch ch-off"><span class="spinner-sm"></span></span>`;
+  if(isOk(id))return`<span class="ch ch-ok"><span class="dot dot-g pulse"></span>Live</span>`;
+  const d=S[id]?.data||{};
+  if(d.configured)return`<span class="ch ch-err"><span class="dot dot-r"></span>Error</span>`;
+  return`<span class="ch ch-off">Not set</span>`;
+}
+
+function cardRefreshBtn(id){
+  const spinning=S[id]?.loading?"spinning":"";
+  return`<button class="card-refresh ${spinning}" onclick="refreshService('${id}',event)" title="Refresh ${id}">${refreshIcon()}</button>`;
+}
+
+// ━━━ RENDER ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+function render(){
+  const configured=configuredServices();
+  const allIds=["chatgpt","copilot","claude","ollama","zai"];
+  // Build tab list: overview + configured tabs only
+  const tabList=["overview",...configured];
+
+  let o=`<div style="max-width:1020px;margin:0 auto;padding:20px 16px 50px">`;
+
+  // Header
+  o+=`<header class="anim" style="margin-bottom:20px">
+    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px">
+      <div style="display:flex;align-items:center;gap:10px">
+        <div style="width:34px;height:34px;border-radius:10px;background:linear-gradient(135deg,rgba(167,139,250,.12),rgba(16,185,129,.08));border:1px solid var(--b2);display:flex;align-items:center;justify-content:center">
+          <svg width="16" height="16" viewBox="0 0 32 32" fill="none"><path d="M8 22V14a8 8 0 0116 0v8" stroke="url(#hg)" stroke-width="2.5" stroke-linecap="round"/><circle cx="12" cy="20" r="2" fill="#a78bfa"/><circle cx="20" cy="20" r="2" fill="#10b981"/><circle cx="16" cy="16" r="2" fill="#4f8cff"/><defs><linearGradient id="hg" x1="8" y1="14" x2="24" y2="22" gradientUnits="userSpaceOnUse"><stop stop-color="#a78bfa"/><stop offset=".5" stop-color="#10b981"/><stop offset="1" stop-color="#4f8cff"/></linearGradient></defs></svg>
+        </div>
+        <div>
+          <h1 style="font-size:15px;font-weight:800;letter-spacing:-.3px">AI Usage Dashboard</h1>
+          <p style="font-size:10px;color:var(--t4);margin-top:1px">${configured.length} service${configured.length!==1?"s":""} connected</p>
+        </div>
+      </div>
+      <div style="display:flex;gap:6px">
+        <button class="btn" onclick="refreshAll()">Refresh All</button>
+        <button class="btn" onclick="S.modal='config';render()">Settings</button>
+      </div>
+    </div>
+    <nav class="tabs" style="margin-top:14px">
+      ${tabList.map(t=>{
+        const names={overview:"Overview",chatgpt:"ChatGPT",copilot:"Copilot",claude:"Claude",ollama:"Ollama",zai:"Z.AI"};
+        const cols={overview:"#fff",chatgpt:"var(--chatgpt)",copilot:"var(--copilot)",claude:"var(--claude)",ollama:"var(--ollama)",zai:"var(--zai)"};
+        return`<button class="tab${S.tab===t?" on":""}" onclick="S.tab='${t}';render()">
+          ${names[t]||t}${S.tab===t?`<style>.tab.on::after{background:${cols[t]||"#fff"}}</style>`:""}
+        </button>`;
+      }).join("")}
+    </nav>
+  </header>`;
+
+  // If tab is not in tabList (e.g. service got unconfigured), fall back to overview
+  if(!tabList.includes(S.tab))S.tab="overview";
+
+  const views={overview:vOverview,chatgpt:vChatGPT,copilot:vCopilot,claude:vClaude,ollama:vOllama,zai:vZAI};
+  o+=(views[S.tab]||vOverview)();
+
+  o+=`</div>`;
+  if(S.modal==="config")o+=vSettings();
+  $("#root").innerHTML=o;
+  document.querySelectorAll('a[target="_blank"]').forEach(a=>{a.rel="noopener noreferrer"});
+}
+
+// ━━━ OVERVIEW ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+function vOverview(){
+  const configured=configuredServices();
+
+  if(configured.length===0){
+    // Nothing configured yet - show welcome
+    return`<div class="c anim empty-state">
+      <div class="icon" style="background:linear-gradient(135deg,rgba(167,139,250,.1),rgba(16,185,129,.08));border:1px solid var(--b2);border-radius:16px;opacity:.6">
+        <svg width="22" height="22" viewBox="0 0 32 32" fill="none"><path d="M8 22V14a8 8 0 0116 0v8" stroke="url(#eg)" stroke-width="2.5" stroke-linecap="round"/><circle cx="12" cy="20" r="2" fill="#a78bfa"/><circle cx="20" cy="20" r="2" fill="#10b981"/><circle cx="16" cy="16" r="2" fill="#4f8cff"/><defs><linearGradient id="eg" x1="8" y1="14" x2="24" y2="22" gradientUnits="userSpaceOnUse"><stop stop-color="#a78bfa"/><stop offset=".5" stop-color="#10b981"/><stop offset="1" stop-color="#4f8cff"/></linearGradient></defs></svg>
+      </div>
+      <h3 style="font-size:15px;font-weight:700;margin-bottom:6px">Welcome to AI Usage Dashboard</h3>
+      <p style="font-size:11px;color:var(--t3);line-height:1.6;max-width:360px;margin:0 auto 20px">Track your AI service usage in real-time. Connect your first service to get started.</p>
+      <button class="btn btn-p" onclick="S.modal='config';render()">Open Settings</button>
+    </div>`;
+  }
+
+  let o=`<div class="overview-grid">`;
+  configured.forEach((id,i)=>{
+    o+=overviewCard(id,i);
+  });
+  o+=`</div>`;
+  return o;
+}
+
+function overviewCard(id,index){
+  const names={chatgpt:"ChatGPT",copilot:"Copilot",claude:"Claude",ollama:"Ollama",zai:"Z.AI"};
+  const colors={chatgpt:"var(--chatgpt)",copilot:"var(--copilot)",claude:"var(--claude)",ollama:"var(--ollama)",zai:"var(--zai)"};
+  const color=colors[id];
+  const name=names[id];
+  const svc=S[id];
+  const loading=svc?.loading;
+  const d=svc?.data||{};
+
+  let content="";
+
+  if(loading){
+    content=`<div class="card-loading"><div class="spinner"></div><div class="loading-text">Connecting...</div></div>`;
+  }else if(isOk(id)){
+    const getData={chatgpt:getOverviewChatGPT,copilot:getOverviewCopilot,claude:getOverviewClaude,ollama:getOverviewOllama,zai:getOverviewZAI}[id];
+    const data=getData?getData():null;
+    if(data){
+      content+=`<div style="display:flex;gap:14px;align-items:start">`;
+      if(data.gauge)content+=data.gauge;
+      content+=`<div style="flex:1;min-width:0">`;
+      if(data.plan)content+=`<div style="margin-bottom:6px"><span class="ch ch-plan" style="font-size:8px;padding:2px 7px">${h(data.plan)}</span> ${data.extra||""}</div>`;
+      if(data.rows){
+        data.rows.forEach(r=>{
+          content+=`<div style="display:flex;justify-content:space-between;align-items:baseline;padding:2px 0">
+            <span style="font-size:10px;color:var(--t3)">${r.l}</span>
+            <span class="mono" style="font-size:11px;font-weight:600;color:${r.c||"var(--t2)"}">${r.v}</span>
+          </div>`;
+        });
+      }
+      if(data.bar){
+        content+=`<div style="margin-top:6px">${pbar(data.bar.pct,data.bar.color,4)}</div>`;
+      }
+      content+=`</div></div>`;
+    }else{
+      content=`<span style="font-size:10px;color:var(--t2)">Connected</span>`;
+    }
+  }else if(d.configured){
+    content=`<div style="font-size:10px;color:var(--red);opacity:.7">${h((d.error||"Error").slice(0,80))}</div>`;
+  }
+
+  const agoText=svc?.lastRefresh?fmtAgo(svc.lastRefresh):"";
+
+  return`<div class="c cp anim a${Math.min(index+1,4)}" style="cursor:pointer" onclick="S.tab='${id}';render()">
+    <div class="accent" style="background:linear-gradient(90deg,transparent,${color}30,transparent)"></div>
+    ${!loading?cardRefreshBtn(id):""}
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+      <div>
+        <div style="font-size:12.5px;font-weight:700">${name}</div>
+        ${agoText?`<div style="font-size:9px;color:var(--t4);margin-top:1px">${agoText}</div>`:""}
+      </div>
+      ${statusChip(id)}
+    </div>
+    ${content}
+  </div>`;
+}
+
+// ── Overview data getters ──
+function getOverviewChatGPT(){
+  const u=S.chatgpt?.data?.usage;if(!u?.rate_limit)return null;
+  const pw=u.rate_limit.primary_window||{};const sw=u.rate_limit.secondary_window||{};
+  return{gauge:gauge(pw.used_percent||0,"var(--chatgpt)",76,5,"Session"),
+    rows:[
+      {l:"Session (5h)",v:`${Math.round(pw.used_percent||0)}%`,c:pw.used_percent>65?"var(--amber)":"var(--chatgpt)"},
+      {l:"Weekly (7d)",v:`${Math.round(sw.used_percent||0)}%`,c:sw.used_percent>65?"var(--amber)":"var(--chatgpt)"},
+      {l:"Resets",v:fmtDur(pw.reset_after_seconds)},
+    ],
+    bar:{pct:sw.used_percent||0,color:"var(--chatgpt)"},
+    plan:u.plan_type,
+    extra:u.rate_limit.limit_reached?`<span class="ch ch-err" style="font-size:8px;padding:2px 7px">Limit Hit</span>`:""};
+}
+
+function getOverviewCopilot(){
+  const d=S.copilot?.data;
+  const q=d?.quotas?.premium_interactions;if(!q)return null;
+  const used=q.entitlement-q.remaining;const pct=Math.round(100-q.percent_remaining);
+  return{gauge:gauge(pct,"var(--copilot)",76,5,"Premium"),
+    rows:[
+      {l:"Premium used",v:`${used}/${q.entitlement}`,c:"var(--copilot)"},
+      {l:"Remaining",v:`${q.remaining}`,c:q.remaining<50?"var(--amber)":"var(--copilot)"},
+      {l:"Resets",v:d.quotaReset||"monthly"},
+    ],
+    bar:{pct,color:"var(--copilot)"},
+    plan:d.plan};
+}
+
+function getOverviewClaude(){
+  const d=S.claude?.data;
+  if(!d?.usage)return null;
+  const u=d.usage;
+  const fh=u.five_hour||{};const sd=u.seven_day||{};
+  const sPct=fh.utilization!=null?fh.utilization:null;
+  const wPct=sd.utilization!=null?sd.utilization:null;
+  if(sPct!=null){
+    return{gauge:gauge(sPct,"var(--claude)",76,5,"Session"),
+      rows:[
+        {l:"Session (5h)",v:`${Math.round(sPct)}%`,c:sPct>65?"var(--amber)":"var(--claude)"},
+        {l:"Weekly (7d)",v:wPct!=null?`${Math.round(wPct)}%`:"--",c:wPct>65?"var(--amber)":"var(--claude)"},
+      ],
+      bar:{pct:wPct||0,color:"var(--claude)"},
+      plan:d.plan,
+      extra:d.orgName?`<span style="font-size:9px;color:var(--t3)">${h(d.orgName)}</span>`:""};
+  }
+  const rows=[];
+  if(typeof u==="object"){
+    const flat=flattenUsage(u);
+    flat.slice(0,3).forEach(([k,v])=>{
+      rows.push({l:k,v:typeof v==="number"?(v<=1&&v>=0?Math.round(v*100)+"%":fmt(v)):String(v).slice(0,15),c:"var(--claude)"});
+    });
+  }
+  return{rows,plan:d.plan,extra:d.orgName?`<span style="font-size:9px;color:var(--t3)">${h(d.orgName)}</span>`:""};
+}
+
+function getOverviewOllama(){
+  const d=S.ollama?.data;if(!d?.account&&!d?.cloudModels&&!d?.usage)return null;
+  const usage=d.usage||{};const real=usage.real||null;
+  const fh=usage.five_hour||{};const sd=usage.seven_day||{};
+  if(real&&(real.session_pct!=null||real.weekly_pct!=null)){
+    const sPct=real.session_pct||0;const wPct=real.weekly_pct||0;
+    return{gauge:gauge(sPct,"var(--ollama)",76,5,"Session"),
+      rows:[
+        {l:"Session",v:`${sPct}%`,c:sPct>65?"var(--amber)":"var(--ollama)"},
+        {l:"Weekly",v:`${wPct}%`,c:wPct>65?"var(--amber)":"var(--ollama)"},
+      ],
+      bar:{pct:wPct,color:"var(--ollama)"},
+      plan:d.account?.plan||real?.plan,
+      extra:d.local?.connected?`<span style="font-size:9px;color:var(--t3)">${d.local.modelCount} local</span>`:""};
+  }
+  const hasUsage=fh.requests>0||sd.requests>0;
+  if(hasUsage){
+    const fhActivity=fh.requests>0?Math.min(Math.round(fh.requests/50*100),100):0;
+    return{gauge:gauge(fhActivity,"var(--ollama)",76,5,fh.requests+" req"),
+      rows:[
+        {l:"Requests (5h)",v:`${fh.requests||0}`,c:"var(--ollama)"},
+        {l:"Tokens (5h)",v:`${fmt(fh.total_tokens||0)}`,c:"var(--ollama)"},
+        {l:"Tokens (7d)",v:`${fmt(sd.total_tokens||0)}`,c:"var(--ollama)"},
+      ],
+      bar:{pct:sd.requests>0?Math.min(Math.round(sd.requests/200*100),100):0,color:"var(--ollama)"},
+      plan:d.account?.plan||real?.plan,
+      extra:d.local?.connected?`<span style="font-size:9px;color:var(--t3)">${d.local.modelCount} local</span>`:""};
+  }
+  return{rows:[
+    {l:"Plan",v:d.account?.plan||real?.plan||"free",c:"var(--ollama)"},
+    {l:"Cloud models",v:`${d.cloudModels||0}`,c:"var(--ollama)"},
+    {l:"Local",v:d.local?.connected?`${d.local.modelCount} models`:"offline",c:d.local?.connected?"var(--ollama)":"var(--t4)"},
+   ],plan:d.account?.plan||real?.plan};
+}
+
+function getOverviewZAI(){
+  const d=S.zai?.data;if(!d?.quota)return null;
+  const tk=d.quota.tokenLimit;const mcp=d.quota.mcpLimit;
+  const tkPct=tk?.percentage||0;const mcpPct=mcp?.percentage||0;
+  const rows=[];
+  if(tk)rows.push({l:"Token (5h)",v:`${Math.round(tkPct)}%`,c:tkPct>65?"var(--amber)":"var(--zai)"});
+  if(mcp){
+    rows.push({l:"MCP (Monthly)",v:`${Math.round(mcpPct)}%`,c:mcpPct>65?"var(--amber)":"var(--zai)"});
+    if(mcp.currentUsage!=null&&mcp.total!=null)rows.push({l:"MCP used",v:`${mcp.currentUsage}/${mcp.total}`,c:"var(--zai)"});
+  }
+  return{gauge:gauge(tkPct,"var(--zai)",76,5,"Token"),rows,bar:{pct:mcpPct,color:"var(--zai)"}};
+}
+
+function flattenUsage(obj,prefix=""){
+  const out=[];
+  for(const[k,v]of Object.entries(obj)){
+    const key=prefix?prefix+"."+k:k;
+    if(typeof v==="number"||typeof v==="boolean"||typeof v==="string")out.push([key.replace(/_/g," "),v]);
+    else if(typeof v==="object"&&v!==null)out.push(...flattenUsage(v,key));
+  }
+  return out;
+}
+
+// ── Detail view wrapper with loading state ──
+function detailView(id,renderFn){
+  const svc=S[id];
+  if(svc?.loading){
+    return`<div class="c cp anim"><div class="card-loading" style="min-height:200px"><div class="spinner"></div><div class="loading-text">Loading ${id}...</div></div></div>`;
+  }
+  return renderFn();
+}
+
+// ━━━ CHATGPT ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+function vChatGPT(){return detailView("chatgpt",_vChatGPT)}
+function _vChatGPT(){
+  const d=S.chatgpt?.data||{};
+  if(!d.configured)return empty("chatgpt","Connect ChatGPT","Token auto-reads from <code class='mono'>~/.codex/auth.json</code>. Or copy from DevTools Network tab (Authorization header).","https://chatgpt.com/codex/settings/usage");
+  if(d.error)return errCard(d.error,d.hint);
+
+  const u=d.usage||{};const rl=u.rate_limit||{};
+  const pw=rl.primary_window||{};const sw=rl.secondary_window||{};
+  const cr=u.code_review_rate_limit||{};const crp=cr.primary_window||{};
+  const credits=u.credits||{};
+  const sPct=pw.used_percent||0;const wPct=sw.used_percent||0;
+
+  return`<div style="display:flex;flex-direction:column;gap:12px">
+  <div class="c cp anim" style="position:relative">
+    <div class="accent" style="background:linear-gradient(90deg,transparent,var(--chatgpt),transparent)"></div>
+    ${cardRefreshBtn("chatgpt")}
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:18px">
+      <div>
+        <h2 style="font-size:16px;font-weight:800;letter-spacing:-.3px">ChatGPT</h2>
+        <p style="font-size:10px;color:var(--t3);margin-top:2px">Rate limits</p>
+      </div>
+      <div style="display:flex;gap:6px">
+        ${u.plan_type?`<span class="ch ch-plan">${h(u.plan_type)}</span>`:""}
+        ${rl.limit_reached?`<span class="ch ch-err">Rate Limited</span>`:`<span class="ch ch-ok"><span class="dot dot-g pulse"></span>Active</span>`}
+      </div>
+    </div>
+    <div class="g2" style="gap:16px;margin-bottom:4px">
+      <div class="stat" style="display:flex;align-items:center;gap:16px;text-align:left;padding:18px">
+        ${gauge(sPct,"var(--chatgpt)",100,7,"Used")}
+        <div style="flex:1">
+          <div class="lbl" style="margin-bottom:4px">Session Window</div>
+          <div style="font-size:13px;font-weight:700;margin-bottom:8px">${Math.round(sPct)}% consumed</div>
+          <div style="display:flex;align-items:center;gap:5px;margin-bottom:2px">
+            <span style="font-size:10px;color:var(--t3)">Resets in</span>
+            <span class="mono" style="font-size:11px;color:var(--t2);font-weight:600">${fmtDur(pw.reset_after_seconds)}</span>
+          </div>
+          <span style="font-size:9px;color:var(--t4)">${fmtDur(pw.limit_window_seconds||18000)} rolling window</span>
+        </div>
+      </div>
+      <div class="stat" style="display:flex;align-items:center;gap:16px;text-align:left;padding:18px">
+        ${gauge(wPct,"var(--chatgpt)",100,7,"Used")}
+        <div style="flex:1">
+          <div class="lbl" style="margin-bottom:4px">Weekly Window</div>
+          <div style="font-size:13px;font-weight:700;margin-bottom:8px">${Math.round(wPct)}% consumed</div>
+          <div style="display:flex;align-items:center;gap:5px;margin-bottom:2px">
+            <span style="font-size:10px;color:var(--t3)">Resets in</span>
+            <span class="mono" style="font-size:11px;color:var(--t2);font-weight:600">${fmtDur(sw.reset_after_seconds)}</span>
+          </div>
+          <span style="font-size:9px;color:var(--t4)">${fmtDur(sw.limit_window_seconds||604800)} rolling window</span>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="g2">
+    <div class="c cp anim a1">
+      <div class="lbl" style="margin-bottom:8px">Code Review Limit</div>
+      ${crp.used_percent!==undefined?`
+        <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px">
+          <span style="font-size:13px;font-weight:700">${Math.round(crp.used_percent)}% used</span>
+          <span style="font-size:10px;color:var(--t3)">Resets ${crp.reset_after_seconds?fmtDur(crp.reset_after_seconds):"--"}</span>
+        </div>
+        ${pbar(crp.used_percent,"var(--chatgpt)",8)}
+      `:`<span style="font-size:10px;color:var(--t3)">No data</span>`}
+    </div>
+    <div class="c cp anim a2">
+      <div class="lbl" style="margin-bottom:8px">Credits</div>
+      <div style="display:flex;gap:16px">
+        <div>
+          <div class="mono" style="font-size:16px;font-weight:700;color:${credits.has_credits?"var(--chatgpt)":"var(--t4)"}">${credits.has_credits?"Active":"None"}</div>
+          <div style="font-size:9px;color:var(--t4);margin-top:2px">Status</div>
+        </div>
+        ${credits.balance!==undefined?`<div>
+          <div class="mono" style="font-size:16px;font-weight:700;color:var(--chatgpt)">${credits.balance}</div>
+          <div style="font-size:9px;color:var(--t4);margin-top:2px">Balance</div>
+        </div>`:""}
+      </div>
+    </div>
+  </div>
+  <div class="c cp anim a3">
+    <div class="lbl" style="margin-bottom:10px">Account</div>
+    <div style="display:flex;flex-wrap:wrap;gap:8px">
+      ${u.email?`<div class="dr" style="flex:1;min-width:180px"><span style="font-size:9.5px;color:var(--t3)">Email</span><span class="mono" style="font-size:10px">${h(u.email)}</span></div>`:""}
+      ${u.plan_type?`<div class="dr" style="flex:1;min-width:100px"><span style="font-size:9.5px;color:var(--t3)">Plan</span><span class="mono" style="font-size:10px;color:var(--chatgpt)">${h(u.plan_type)}</span></div>`:""}
+    </div>
+    <div style="display:flex;gap:6px;margin-top:12px">
+      <a href="https://chatgpt.com/codex/settings/usage" target="_blank" class="btn" style="color:var(--chatgpt)">Usage Dashboard</a>
+      <a href="https://chatgpt.com/#settings/BillingSettings" target="_blank" class="btn">Billing</a>
+    </div>
+  </div>
+</div>`;
+}
+
+// ━━━ COPILOT ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+function vCopilot(){return detailView("copilot",_vCopilot)}
+function _vCopilot(){
+  const d=S.copilot?.data||{};
+  if(!d.configured)return empty("copilot","Connect Copilot","Create a GitHub PAT (classic) with <code class='mono'>read:user</code> scope.","https://github.com/settings/tokens");
+  if(d.error)return errCard(d.error,d.hint);
+
+  const q=d.quotas||{};const prem=q.premium_interactions||{};
+  const chat=q.chat||{};const comp=q.completions||{};
+  const premUsed=prem.entitlement-(prem.remaining||0);
+  const premPct=Math.round(100-(prem.percent_remaining||100));
+  let resetDays="";
+  if(d.quotaReset){const diff=new Date(d.quotaReset)-Date.now();if(diff>0)resetDays=Math.ceil(diff/86400000)+"d";}
+
+  return`<div style="display:flex;flex-direction:column;gap:12px">
+  <div class="c cp anim" style="position:relative">
+    <div class="accent" style="background:linear-gradient(90deg,transparent,var(--copilot),transparent)"></div>
+    ${cardRefreshBtn("copilot")}
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:18px">
+      <div>
+        <h2 style="font-size:16px;font-weight:800;letter-spacing:-.3px">Copilot</h2>
+        <p style="font-size:10px;color:var(--t3);margin-top:2px">Quota tracking</p>
+      </div>
+      <div style="display:flex;gap:6px">
+        ${d.plan?`<span class="ch ch-plan">${h(d.plan)}</span>`:""}
+        <span class="ch ch-ok"><span class="dot dot-g pulse"></span>Active</span>
+      </div>
+    </div>
+    <div class="stat" style="display:flex;align-items:center;gap:24px;text-align:left;padding:20px">
+      ${gauge(premPct,"var(--copilot)",120,8,"Premium")}
+      <div style="flex:1">
+        <div class="lbl" style="margin-bottom:4px">Premium Requests</div>
+        <div style="display:flex;align-items:baseline;gap:6px;margin-bottom:10px">
+          <span class="mono" style="font-size:32px;font-weight:800;letter-spacing:-1px;color:var(--copilot)">${premUsed}</span>
+          <span style="font-size:12px;color:var(--t3)">of ${prem.entitlement} used</span>
+        </div>
+        ${pbar(premPct,"var(--copilot)",8)}
+        <div style="display:flex;justify-content:space-between;margin-top:10px">
+          <span style="font-size:10px;color:var(--t2)"><span class="mono" style="font-weight:600;color:var(--copilot)">${prem.remaining||0}</span> remaining</span>
+          <span style="font-size:10px;color:var(--t3)">Resets ${d.quotaReset||"monthly"}${resetDays?" ("+resetDays+")":""}</span>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="g3">
+    <div class="c cp anim a1">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <div class="lbl">Chat</div>
+        ${chat.unlimited?`<span class="ch ch-ok" style="font-size:8px;padding:2px 6px">Unlimited</span>`:`<span class="ch ch-err" style="font-size:8px;padding:2px 6px">${chat.remaining||0} left</span>`}
+      </div>
+      <div class="mono" style="font-size:24px;font-weight:700;color:${chat.unlimited?"var(--copilot)":"var(--t2)"}">${chat.unlimited?"\u221E":fmt(chat.entitlement)}</div>
+    </div>
+    <div class="c cp anim a2">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <div class="lbl">Completions</div>
+        ${comp.unlimited?`<span class="ch ch-ok" style="font-size:8px;padding:2px 6px">Unlimited</span>`:`<span class="ch ch-err" style="font-size:8px;padding:2px 6px">${comp.remaining||0} left</span>`}
+      </div>
+      <div class="mono" style="font-size:24px;font-weight:700;color:${comp.unlimited?"var(--copilot)":"var(--t2)"}">${comp.unlimited?"\u221E":fmt(comp.entitlement)}</div>
+    </div>
+    <div class="c cp anim a3">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <div class="lbl">Premium</div>
+        <span class="ch ${premPct>80?"ch-err":premPct>50?"ch-err":"ch-ok"}" style="font-size:8px;padding:2px 6px">${premPct}% used</span>
+      </div>
+      <div class="mono" style="font-size:24px;font-weight:700;color:var(--copilot)">${prem.remaining||0}</div>
+      <div style="font-size:9px;color:var(--t4);margin-top:3px">remaining</div>
+    </div>
+  </div>
+  <div class="c cp anim a4">
+    <div class="lbl" style="margin-bottom:10px">Account</div>
+    <div style="display:flex;flex-wrap:wrap;gap:8px">
+      ${d.login?`<div class="dr" style="flex:1;min-width:140px"><span style="font-size:9.5px;color:var(--t3)">GitHub</span><span class="mono" style="font-size:10px;color:var(--copilot)">${h(d.login)}</span></div>`:""}
+      <div class="dr" style="flex:1;min-width:100px"><span style="font-size:9.5px;color:var(--t3)">Plan</span><span class="mono" style="font-size:10px">${h(d.plan||"--")}</span></div>
+      <div class="dr" style="flex:1;min-width:100px"><span style="font-size:9.5px;color:var(--t3)">Chat</span><span class="mono" style="font-size:10px;color:${d.chatEnabled?"var(--green)":"var(--red)"}">${d.chatEnabled?"Enabled":"Disabled"}</span></div>
+      ${d.quotaReset?`<div class="dr" style="flex:1;min-width:140px"><span style="font-size:9.5px;color:var(--t3)">Quota Reset</span><span class="mono" style="font-size:10px">${h(d.quotaReset)}</span></div>`:""}
+    </div>
+    <div style="display:flex;gap:6px;margin-top:12px">
+      <a href="https://github.com/settings/billing/premium-requests" target="_blank" class="btn" style="color:var(--copilot)">Premium Requests</a>
+      <a href="https://github.com/settings/billing" target="_blank" class="btn">Billing</a>
+      <a href="https://github.com/settings/copilot/features" target="_blank" class="btn">Settings</a>
+    </div>
+  </div>
+</div>`;
+}
+
+// ━━━ CLAUDE ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+function vClaude(){return detailView("claude",_vClaude)}
+function _vClaude(){
+  const d=S.claude?.data||{};
+  if(!d.configured)return empty("claude","Connect Claude","Copy <code class='mono'>sessionKey</code> cookie from claude.ai DevTools.","https://claude.ai/settings/usage");
+  if(d.error)return errCard(d.error,d.hint);
+
+  const usage=d.usage||{};const overage=d.overage||{};
+  const fh=usage.five_hour||{};const sd=usage.seven_day||{};
+  const fhPct=fh.utilization!=null?fh.utilization:null;
+  const sdPct=sd.utilization!=null?sd.utilization:null;
+
+  return`<div style="display:flex;flex-direction:column;gap:12px">
+  <div class="c cp anim" style="position:relative">
+    <div class="accent" style="background:linear-gradient(90deg,transparent,var(--claude),transparent)"></div>
+    ${cardRefreshBtn("claude")}
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:18px">
+      <div>
+        <h2 style="font-size:16px;font-weight:800;letter-spacing:-.3px">Claude</h2>
+        <p style="font-size:10px;color:var(--t3);margin-top:2px">Rate limits</p>
+      </div>
+      <div style="display:flex;gap:6px">
+        ${d.plan?`<span class="ch ch-plan">${h(d.plan)}</span>`:""}
+        <span class="ch ch-ok"><span class="dot dot-g pulse"></span>Connected</span>
+      </div>
+    </div>
+    ${fhPct!=null||sdPct!=null?`<div class="g2" style="gap:16px;margin-bottom:4px">
+      ${fhPct!=null?`<div class="stat" style="display:flex;align-items:center;gap:16px;text-align:left;padding:18px">
+        ${gauge(fhPct,"var(--claude)",100,7,"Used")}
+        <div style="flex:1">
+          <div class="lbl" style="margin-bottom:4px">Session Window</div>
+          <div style="font-size:13px;font-weight:700;margin-bottom:8px">${Math.round(fhPct)}% consumed</div>
+          <div style="display:flex;align-items:center;gap:5px;margin-bottom:2px">
+            <span style="font-size:10px;color:var(--t3)">Resets in</span>
+            <span class="mono" style="font-size:11px;color:var(--t2);font-weight:600">${timeUntil(fh.resets_at)}</span>
+          </div>
+          <span style="font-size:9px;color:var(--t4)">5h rolling window</span>
+        </div>
+      </div>`:""}
+      ${sdPct!=null?`<div class="stat" style="display:flex;align-items:center;gap:16px;text-align:left;padding:18px">
+        ${gauge(sdPct,"var(--claude)",100,7,"Used")}
+        <div style="flex:1">
+          <div class="lbl" style="margin-bottom:4px">Weekly Window</div>
+          <div style="font-size:13px;font-weight:700;margin-bottom:8px">${Math.round(sdPct)}% consumed</div>
+          <div style="display:flex;align-items:center;gap:5px;margin-bottom:2px">
+            <span style="font-size:10px;color:var(--t3)">Resets in</span>
+            <span class="mono" style="font-size:11px;color:var(--t2);font-weight:600">${timeUntil(sd.resets_at)}</span>
+          </div>
+          <span style="font-size:9px;color:var(--t4)">7d rolling window</span>
+        </div>
+      </div>`:""}
+    </div>`:renderClaudeUsageFallback(usage)}
+  </div>
+
+  ${usage.seven_day_opus||usage.seven_day_sonnet?`<div class="g2">
+    ${usage.seven_day_opus?`<div class="c cp anim a1">
+      <div class="lbl" style="margin-bottom:8px">Opus (7d)</div>
+      <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px">
+        <span style="font-size:13px;font-weight:700">${Math.round(usage.seven_day_opus.utilization||0)}% used</span>
+        <span style="font-size:10px;color:var(--t3)">Resets ${timeUntil(usage.seven_day_opus.resets_at)}</span>
+      </div>
+      ${pbar(usage.seven_day_opus.utilization||0,"var(--claude)",8)}
+    </div>`:""}
+    ${usage.seven_day_sonnet?`<div class="c cp anim a2">
+      <div class="lbl" style="margin-bottom:8px">Sonnet (7d)</div>
+      <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px">
+        <span style="font-size:13px;font-weight:700">${Math.round(usage.seven_day_sonnet.utilization||0)}% used</span>
+        <span style="font-size:10px;color:var(--t3)">Resets ${timeUntil(usage.seven_day_sonnet.resets_at)}</span>
+      </div>
+      ${pbar(usage.seven_day_sonnet.utilization||0,"var(--claude)",8)}
+    </div>`:""}
+  </div>`:""}
+
+  ${overage&&(overage.monthly_credit_limit||overage.used_credits)?`<div class="c cp anim a2">
+    <div class="lbl" style="margin-bottom:8px">Extra Usage Credits</div>
+    <div class="g3" style="gap:10px">
+      <div class="stat">
+        <div class="sv" style="color:var(--claude)">${overage.currency||""} ${((overage.monthly_credit_limit||0)/100).toFixed(2)}</div>
+        <div class="sl">Monthly Limit</div>
+      </div>
+      <div class="stat">
+        <div class="sv" style="color:${overage.used_credits>0?"var(--amber)":"var(--green)"}">${overage.currency||""} ${((overage.used_credits||0)/100).toFixed(2)}</div>
+        <div class="sl">Used</div>
+      </div>
+      <div class="stat">
+        <div class="sv" style="color:${overage.out_of_credits?"var(--red)":"var(--green)"}">${overage.out_of_credits?"Yes":"No"}</div>
+        <div class="sl">Out of Credits</div>
+      </div>
+    </div>
+    ${overage.is_enabled?`<div style="margin-top:8px"><span class="ch ch-ok" style="font-size:8px;padding:2px 7px">Extra usage enabled</span></div>`:""}
+  </div>`:""}
+
+  <div class="c cp anim a3">
+    <div class="lbl" style="margin-bottom:10px">Account</div>
+    <div style="display:flex;flex-wrap:wrap;gap:8px">
+      ${d.orgName?`<div class="dr" style="flex:1;min-width:140px"><span style="font-size:9.5px;color:var(--t3)">Org</span><span class="mono" style="font-size:10px;color:var(--claude)">${h(d.orgName)}</span></div>`:""}
+      ${d.plan?`<div class="dr" style="flex:1;min-width:100px"><span style="font-size:9.5px;color:var(--t3)">Plan</span><span class="mono" style="font-size:10px">${h(d.plan)}</span></div>`:""}
+    </div>
+    <div style="display:flex;gap:6px;margin-top:12px">
+      <a href="https://claude.ai/settings/usage" target="_blank" class="btn" style="color:var(--claude)">Usage Dashboard</a>
+      <a href="https://claude.ai/settings/billing" target="_blank" class="btn">Billing</a>
+    </div>
+  </div>
+</div>`;
+}
+
+function renderClaudeUsageFallback(usage){
+  const flat=flattenUsage(usage);
+  if(!flat.length)return`<span style="font-size:11px;color:var(--t2)">Connected</span>`;
+  const pcts=flat.filter(([k,v])=>typeof v==="number"&&(k.includes("utilization")||k.includes("percent")||(v>=0&&v<=1)));
+  const rest=flat.filter(([k])=>!pcts.find(p=>p[0]===k));
+  let html="";
+  if(pcts.length){
+    html+=`<div style="display:flex;gap:16px;justify-content:center;margin-bottom:16px;flex-wrap:wrap">
+      ${pcts.slice(0,4).map(([k,v])=>{
+        const p=v<=1?v*100:v;
+        return`<div style="text-align:center">${gauge(p,"var(--claude)",88,6,k.split(".").pop().slice(0,10))}</div>`;
+      }).join("")}
+    </div>`;
+  }
+  const strs=rest.filter(([,v])=>typeof v==="string");
+  if(strs.length){
+    html+=`<div style="display:flex;flex-wrap:wrap;gap:6px">
+      ${strs.slice(0,6).map(([k,v])=>`<div class="dr" style="flex:1;min-width:140px">
+        <span style="font-size:9px;color:var(--t3)">${h(k.split(".").pop().replace(/_/g," "))}</span>
+        <span class="mono" style="font-size:10px;color:var(--claude)">${h(String(v).slice(0,25))}</span>
+      </div>`).join("")}
+    </div>`;
+  }
+  return html||`<span style="font-size:11px;color:var(--t2)">Connected</span>`;
+}
+
+// ━━━ OLLAMA ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+function vOllama(){return detailView("ollama",_vOllama)}
+function _vOllama(){
+  const d=S.ollama?.data||{};
+  if(!d.configured)return empty("ollama","Connect Ollama","Get API key from ollama.com/settings/keys.","https://ollama.com/settings/keys");
+  const hasUsageData=d.usage&&(d.usage.real||d.usage.five_hour?.requests>0||d.usage.seven_day?.requests>0);
+  if(d.error&&!d.account&&!hasUsageData)return errCard(d.error);
+
+  const acct=d.account||{};const local=d.local||{};
+  const usage=d.usage||{};const real=usage.real||null;
+  const fh=usage.five_hour||{};const sd=usage.seven_day||{};
+  const hasReal=real&&(real.session_pct!=null||real.weekly_pct!=null);
+
+  return`<div style="display:flex;flex-direction:column;gap:12px">
+  <div class="c cp anim" style="position:relative">
+    <div class="accent" style="background:linear-gradient(90deg,transparent,var(--ollama),transparent)"></div>
+    ${cardRefreshBtn("ollama")}
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:18px">
+      <div>
+        <h2 style="font-size:16px;font-weight:800;letter-spacing:-.3px">Ollama</h2>
+        <p style="font-size:10px;color:var(--t3);margin-top:2px">Cloud usage tracking</p>
+      </div>
+      <div style="display:flex;gap:6px">
+        <span class="ch ch-plan">${h(acct.plan||real?.plan||"free")}</span>
+        <span class="ch ch-ok"><span class="dot dot-g pulse"></span>Connected</span>
+      </div>
+    </div>
+    ${d.error&&!d.account?`<div style="padding:6px 10px;border-radius:6px;background:rgba(255,180,0,.08);border:1px solid rgba(255,180,0,.15);margin-bottom:12px;font-size:10px;color:var(--t3)">Account info unavailable — showing usage data only</div>`:""}
+
+    ${hasReal?`
+    <div class="g2" style="gap:16px;margin-bottom:4px">
+      <div class="stat" style="display:flex;align-items:center;gap:16px;text-align:left;padding:18px">
+        ${gauge(real.session_pct||0,"var(--ollama)",100,7,"Used")}
+        <div style="flex:1">
+          <div class="lbl" style="margin-bottom:4px">Session Window</div>
+          <div style="font-size:13px;font-weight:700;margin-bottom:8px">${real.session_pct||0}% consumed</div>
+          <div style="display:flex;align-items:center;gap:5px;margin-bottom:2px">
+            <span style="font-size:10px;color:var(--t3)">Resets in</span>
+            <span class="mono" style="font-size:11px;color:var(--t2);font-weight:600">${timeUntil(real.session_resets_at)}</span>
+          </div>
+          <span style="font-size:9px;color:var(--t4)">Rolling session window</span>
+        </div>
+      </div>
+      <div class="stat" style="display:flex;align-items:center;gap:16px;text-align:left;padding:18px">
+        ${gauge(real.weekly_pct||0,"var(--ollama)",100,7,"Used")}
+        <div style="flex:1">
+          <div class="lbl" style="margin-bottom:4px">Weekly Window</div>
+          <div style="font-size:13px;font-weight:700;margin-bottom:8px">${real.weekly_pct||0}% consumed</div>
+          <div style="display:flex;align-items:center;gap:5px;margin-bottom:2px">
+            <span style="font-size:10px;color:var(--t3)">Resets in</span>
+            <span class="mono" style="font-size:11px;color:var(--t2);font-weight:600">${timeUntil(real.weekly_resets_at)}</span>
+          </div>
+          <span style="font-size:9px;color:var(--t4)">7d rolling window</span>
+        </div>
+      </div>
+    </div>
+    `:`
+    <div class="g2" style="gap:16px;margin-bottom:14px">
+      <div class="stat" style="display:flex;align-items:center;gap:16px;text-align:left;padding:18px">
+        ${gauge(fh.requests>0?Math.min(Math.round(fh.requests/50*100),100):0,"var(--ollama)",100,7,(fh.requests||0)+" req")}
+        <div style="flex:1">
+          <div class="lbl" style="margin-bottom:4px">Session Window (5h)</div>
+          <div style="display:flex;justify-content:space-between;align-items:baseline;padding:2px 0">
+            <span style="font-size:10px;color:var(--t3)">Requests</span>
+            <span class="mono" style="font-size:13px;font-weight:700;color:var(--ollama)">${fh.requests||0}</span>
+          </div>
+          <div style="display:flex;justify-content:space-between;align-items:baseline;padding:2px 0">
+            <span style="font-size:10px;color:var(--t3)">Total tokens</span>
+            <span class="mono" style="font-size:11px;font-weight:600;color:var(--t2)">${fmt(fh.total_tokens||0)}</span>
+          </div>
+          <div style="display:flex;justify-content:space-between;align-items:baseline;padding:2px 0">
+            <span style="font-size:10px;color:var(--t3)">Duration</span>
+            <span class="mono" style="font-size:11px;font-weight:600;color:var(--t2)">${fh.total_duration_ms?fmtDur(fh.total_duration_ms/1000):"--"}</span>
+          </div>
+          ${fh.resets_at?`<div style="display:flex;align-items:center;gap:5px;margin-top:3px">
+            <span style="font-size:9px;color:var(--t4)">Window resets in</span>
+            <span class="mono" style="font-size:9px;color:var(--t3)">${timeUntil(fh.resets_at)}</span>
+          </div>`:""}
+        </div>
+      </div>
+      <div class="stat" style="display:flex;align-items:center;gap:16px;text-align:left;padding:18px">
+        ${gauge(sd.requests>0?Math.min(Math.round(sd.requests/200*100),100):0,"var(--ollama)",100,7,(sd.requests||0)+" req")}
+        <div style="flex:1">
+          <div class="lbl" style="margin-bottom:4px">Weekly Window (7d)</div>
+          <div style="display:flex;justify-content:space-between;align-items:baseline;padding:2px 0">
+            <span style="font-size:10px;color:var(--t3)">Requests</span>
+            <span class="mono" style="font-size:13px;font-weight:700;color:var(--ollama)">${sd.requests||0}</span>
+          </div>
+          <div style="display:flex;justify-content:space-between;align-items:baseline;padding:2px 0">
+            <span style="font-size:10px;color:var(--t3)">Total tokens</span>
+            <span class="mono" style="font-size:11px;font-weight:600;color:var(--t2)">${fmt(sd.total_tokens||0)}</span>
+          </div>
+          <div style="display:flex;justify-content:space-between;align-items:baseline;padding:2px 0">
+            <span style="font-size:10px;color:var(--t3)">Duration</span>
+            <span class="mono" style="font-size:11px;font-weight:600;color:var(--t2)">${sd.total_duration_ms?fmtDur(sd.total_duration_ms/1000):"--"}</span>
+          </div>
+          ${sd.resets_at?`<div style="display:flex;align-items:center;gap:5px;margin-top:3px">
+            <span style="font-size:9px;color:var(--t4)">Window resets in</span>
+            <span class="mono" style="font-size:9px;color:var(--t3)">${timeUntil(sd.resets_at)}</span>
+          </div>`:""}
+        </div>
+      </div>
+    </div>
+    ${!hasReal&&usage.scrapeError?`<div style="padding:6px 10px;border-radius:var(--rs);background:rgba(245,158,11,.04);border:1px solid rgba(245,158,11,.1);margin-bottom:14px">
+      <span style="font-size:9.5px;color:var(--amber)">Usage scraping unavailable: ${h(usage.scrapeError)}</span>
+      <span style="font-size:9px;color:var(--t4);margin-left:4px">Add session cookie in Settings for real percentages.</span>
+    </div>`:""}
+    ${!hasReal?`
+    <div class="g3" style="gap:10px;margin-bottom:14px">
+      <div class="stat">
+        <div class="sv" style="color:var(--ollama)">${fmt(sd.prompt_tokens||0)}</div>
+        <div class="sl">Input Tokens (7d)</div>
+      </div>
+      <div class="stat">
+        <div class="sv" style="color:var(--ollama)">${fmt(sd.eval_tokens||0)}</div>
+        <div class="sl">Output Tokens (7d)</div>
+      </div>
+      <div class="stat">
+        <div class="sv" style="color:var(--ollama)">${fmt(sd.total_tokens||0)}</div>
+        <div class="sl">Total Tokens (7d)</div>
+      </div>
+    </div>
+    `:""}
+    `}
+  </div>
+
+  <div class="c cp anim a1">
+    <div class="lbl" style="margin-bottom:10px">Account &amp; Cloud</div>
+    <div class="g3" style="gap:10px;margin-bottom:10px">
+      <div class="stat">
+        <div class="sv" style="color:var(--ollama)">${h((acct.plan||"free").charAt(0).toUpperCase()+(acct.plan||"free").slice(1))}</div>
+        <div class="sl">Plan</div>
+      </div>
+      <div class="stat">
+        <div class="sv" style="color:var(--ollama)">${d.cloudModels||0}</div>
+        <div class="sl">Cloud Models</div>
+      </div>
+      <div class="stat">
+        <div class="sv" style="color:${local.connected?"var(--ollama)":"var(--t4)"}">${local.connected?local.modelCount:"\u2014"}</div>
+        <div class="sl">Local Models</div>
+      </div>
+    </div>
+    <div style="display:flex;flex-wrap:wrap;gap:8px">
+      ${acct.name?`<div class="dr" style="flex:1;min-width:140px"><span style="font-size:9.5px;color:var(--t3)">User</span><span class="mono" style="font-size:10px;color:var(--ollama)">${h(acct.name)}</span></div>`:""}
+      ${acct.email?`<div class="dr" style="flex:1;min-width:180px"><span style="font-size:9.5px;color:var(--t3)">Email</span><span class="mono" style="font-size:10px">${h(acct.email)}</span></div>`:""}
+      <div class="dr" style="flex:1;min-width:100px"><span style="font-size:9.5px;color:var(--t3)">Subscription</span><span class="mono" style="font-size:10px;color:${acct.subscriptionActive?"var(--green)":acct.plan==="free"?"var(--ollama)":"var(--t4)"}">${acct.subscriptionActive?"Active":acct.plan==="free"?"Free Plan":"Inactive"}</span></div>
+    </div>
+  </div>
+
+  ${local.connected?`
+  <div class="c cp anim a2">
+    <div class="lbl" style="margin-bottom:10px">Local Instance</div>
+    <div class="g3" style="gap:10px;margin-bottom:${local.runningCount>0?"12px":"0"}">
+      <div class="stat">
+        <div class="sv" style="color:var(--green)">Online</div>
+        <div class="sl">Status</div>
+      </div>
+      <div class="stat">
+        <div class="sv" style="color:var(--ollama)">${local.modelCount}</div>
+        <div class="sl">Models</div>
+      </div>
+      <div class="stat">
+        <div class="sv" style="color:${local.runningCount>0?"var(--green)":"var(--t4)"}">${local.runningCount}</div>
+        <div class="sl">Running</div>
+      </div>
+    </div>
+    ${local.running&&local.running.length?`
+      <div class="lbl" style="margin-bottom:6px;color:var(--green)">Running Models</div>
+      <div style="display:flex;flex-wrap:wrap;gap:4px">
+        ${local.running.map(r=>`<div class="dr" style="padding:5px 10px"><span class="mono" style="font-size:10px;color:var(--green)">${h(r.name)}</span></div>`).join("")}
+      </div>
+    `:""}
+  </div>
+  `:""}
+
+  <div class="c cp anim a3">
+    <div style="display:flex;gap:6px;flex-wrap:wrap">
+      <a href="https://ollama.com/settings" target="_blank" class="btn" style="color:var(--ollama)">Cloud Dashboard</a>
+      <a href="https://ollama.com/settings/keys" target="_blank" class="btn">API Keys</a>
+      <a href="https://ollama.com/search?c=cloud" target="_blank" class="btn">Browse Models</a>
+    </div>
+  </div>
+</div>`;
+}
+
+// ━━━ Z.AI GLM ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+function vZAI(){return detailView("zai",_vZAI)}
+function _vZAI(){
+  const d=S.zai?.data||{};
+  if(!d.configured)return empty("zai","Connect Z.AI","Paste your Z.AI auth token from the Z.AI dashboard or coding plugin settings.","https://z.ai/manage-apikey/subscription");
+  if(d.error)return errCard(d.error);
+
+  const tk=d.quota?.tokenLimit;const mcp=d.quota?.mcpLimit;
+  const tkPct=tk?.percentage||0;const mcpPct=mcp?.percentage||0;
+
+  return`<div style="display:flex;flex-direction:column;gap:12px">
+  <div class="c cp anim" style="position:relative">
+    <div class="accent" style="background:linear-gradient(90deg,transparent,var(--zai),transparent)"></div>
+    ${cardRefreshBtn("zai")}
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:18px">
+      <div>
+        <h2 style="font-size:16px;font-weight:800;letter-spacing:-.3px">Z.AI GLM</h2>
+        <p style="font-size:10px;color:var(--t3);margin-top:2px">Quota &amp; usage</p>
+      </div>
+      <div style="display:flex;gap:6px">
+        <span class="ch ch-plan">GLM Coding</span>
+        <span class="ch ch-ok"><span class="dot dot-g pulse"></span>Connected</span>
+      </div>
+    </div>
+    <div class="g2" style="gap:16px;margin-bottom:4px">
+      <div class="stat" style="display:flex;align-items:center;gap:16px;text-align:left;padding:18px">
+        ${gauge(tkPct,"var(--zai)",100,7,"Used")}
+        <div style="flex:1">
+          <div class="lbl" style="margin-bottom:4px">Token Limit</div>
+          <div style="font-size:13px;font-weight:700;margin-bottom:8px">${Math.round(tkPct)}% consumed</div>
+          <span style="font-size:9px;color:var(--t4)">5-hour rolling window</span>
+        </div>
+      </div>
+      <div class="stat" style="display:flex;align-items:center;gap:16px;text-align:left;padding:18px">
+        ${gauge(mcpPct,"var(--zai)",100,7,"Used")}
+        <div style="flex:1">
+          <div class="lbl" style="margin-bottom:4px">MCP Limit</div>
+          <div style="font-size:13px;font-weight:700;margin-bottom:8px">${Math.round(mcpPct)}% consumed</div>
+          ${mcp?.currentUsage!=null?`<div style="display:flex;align-items:center;gap:5px;margin-bottom:2px">
+            <span style="font-size:10px;color:var(--t3)">Used</span>
+            <span class="mono" style="font-size:11px;color:var(--t2);font-weight:600">${mcp.currentUsage} / ${mcp.total||"--"}</span>
+          </div>`:""}
+          <span style="font-size:9px;color:var(--t4)">Monthly limit</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  ${mcp?.usageDetails&&Array.isArray(mcp.usageDetails)&&mcp.usageDetails.length?`<div class="c cp anim a1">
+    <div class="lbl" style="margin-bottom:10px">MCP Usage Details</div>
+    <div style="display:flex;flex-wrap:wrap;gap:6px">
+      ${mcp.usageDetails.map(item=>{
+        const name=item.modelCode||item.name||item.tool||"Unknown";
+        const val=item.usage!=null?item.usage:item.value!=null?item.value:"";
+        return`<div class="dr" style="flex:1;min-width:160px">
+          <span style="font-size:9.5px;color:var(--t3)">${h(String(name))}</span>
+          <span class="mono" style="font-size:10px;color:var(--zai)">${h(String(val))}</span>
+        </div>`;
+      }).join("")}
+    </div>
+  </div>`:""}
+
+  ${d.modelUsage?`<div class="c cp anim a2">
+    <div class="lbl" style="margin-bottom:10px">Model Usage (24h)</div>
+    ${renderZAIModelUsage(d.modelUsage)}
+  </div>`:""}
+
+  ${d.toolUsage?`<div class="c cp anim a3">
+    <div class="lbl" style="margin-bottom:10px">Tool Usage (24h)</div>
+    ${renderZAIToolUsage(d.toolUsage)}
+  </div>`:""}
+
+  <div class="c cp anim a4">
+    <div style="display:flex;gap:6px;flex-wrap:wrap">
+      <a href="https://z.ai/manage-apikey/subscription" target="_blank" class="btn" style="color:var(--zai)">Z.AI Dashboard</a>
+    </div>
+  </div>
+</div>`;
+}
+
+function renderZAIModelUsage(data){
+  if(!data||typeof data!=="object")return`<span style="font-size:10px;color:var(--t3)">No data</span>`;
+  const tu=data.totalUsage||{};
+  const calls=tu.totalModelCallCount||0;const tokens=tu.totalTokensUsage||0;
+  if(calls===0&&tokens===0)return`<span style="font-size:10px;color:var(--t3)">No activity in the last 24h</span>`;
+  return`<div class="g2" style="gap:10px">
+    <div class="stat"><div class="sv" style="color:var(--zai)">${fmt(calls)}</div><div class="sl">Total Calls</div></div>
+    <div class="stat"><div class="sv" style="color:var(--zai)">${fmt(tokens)}</div><div class="sl">Total Tokens</div></div>
+  </div>`;
+}
+
+function renderZAIToolUsage(data){
+  if(!data||typeof data!=="object")return`<span style="font-size:10px;color:var(--t3)">No data</span>`;
+  const tu=data.totalUsage||{};
+  const search=tu.totalNetworkSearchCount||0;const webRead=tu.totalWebReadMcpCount||0;
+  const zRead=tu.totalZreadMcpCount||0;const searchMcp=tu.totalSearchMcpCount||0;
+  const total=search+webRead+zRead+searchMcp;
+  if(total===0)return`<span style="font-size:10px;color:var(--t3)">No activity in the last 24h</span>`;
+  let o=`<div class="g4" style="gap:10px">
+    <div class="stat"><div class="sv" style="color:var(--zai)">${fmt(searchMcp)}</div><div class="sl">Search MCP</div></div>
+    <div class="stat"><div class="sv" style="color:var(--zai)">${fmt(search)}</div><div class="sl">Network Search</div></div>
+    <div class="stat"><div class="sv" style="color:var(--zai)">${fmt(webRead)}</div><div class="sl">Web Reader</div></div>
+    <div class="stat"><div class="sv" style="color:var(--zai)">${fmt(zRead)}</div><div class="sl">Z-Read</div></div>
+  </div>`;
+  const details=tu.toolDetails;
+  if(Array.isArray(details)&&details.length){
+    o+=`<div style="margin-top:10px;display:flex;flex-wrap:wrap;gap:6px">
+      ${details.map(d=>`<div class="dr" style="flex:1;min-width:160px">
+        <span style="font-size:9.5px;color:var(--t3)">${h(String(d.toolName||d.name||d.tool||"Unknown"))}</span>
+        <span class="mono" style="font-size:10px;color:var(--zai)">${h(String(d.count||d.usage||d.value||0))}</span>
+      </div>`).join("")}
+    </div>`;
+  }
+  return o;
+}
+
+// ━━━ HELPERS ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+function empty(id,title,desc,link){
+  const c={chatgpt:"var(--chatgpt)",copilot:"var(--copilot)",claude:"var(--claude)",ollama:"var(--ollama)",zai:"var(--zai)"}[id];
+  return`<div class="c cp anim" style="text-align:center;padding:44px 20px">
+    <div style="width:40px;height:40px;border-radius:14px;background:${c}08;border:1px solid ${c}10;display:flex;align-items:center;justify-content:center;margin:0 auto 14px;font-size:18px;color:${c};opacity:.4">?</div>
+    <h3 style="font-size:14px;font-weight:700;margin-bottom:4px">${title}</h3>
+    <p style="font-size:10.5px;color:var(--t3);line-height:1.6;max-width:360px;margin:0 auto 16px">${desc}</p>
+    <div style="display:flex;gap:6px;justify-content:center">
+      <button class="btn btn-p" onclick="S.modal='config';render()">Open Settings</button>
+      ${link?`<a href="${link}" target="_blank" class="btn">Guide</a>`:""}
+    </div>
+  </div>`;
+}
+
+function errCard(err,hint){
+  return`<div class="c cp anim" style="border-color:rgba(239,68,68,.12)">
+    <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px"><span class="dot dot-r"></span><span style="font-size:11px;font-weight:600;color:var(--red)">Connection Error</span></div>
+    <div class="mono" style="font-size:10px;color:#f87171;word-break:break-all;margin-bottom:4px">${h(err)}</div>
+    ${hint?`<p style="font-size:9.5px;color:var(--t3);line-height:1.5">${h(hint)}</p>`:""}
+    <button class="btn" style="margin-top:8px;color:var(--red);border-color:rgba(239,68,68,.12)" onclick="S.modal='config';render()">Update Settings</button>
+  </div>`;
+}
+
+// ━━━ SETTINGS ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+async function refreshChatGPT(){
+  const btn=$('#btn-refresh-chatgpt');
+  if(btn){btn.disabled=true;btn.textContent='Loading...';}
+  const r=await api('/api/chatgpt/refresh-token',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
+  if(r.ok){S.modal=null;loadAll();}
+  else{
+    if(btn){btn.disabled=false;btn.textContent='Retry';}
+    const hint=$('#hint-chatgpt');
+    if(hint)hint.innerHTML=`<span style="color:var(--red)">${h(r.error||'Failed')}</span>${r.hint?' \u2014 '+h(r.hint):''}`;
+  }
+}
+async function validateClaude(){
+  const key=$('#c_claude')?.value;
+  const btn=$('#btn-validate-claude');
+  if(btn){btn.disabled=true;btn.textContent='Checking...';}
+  const r=await api('/api/claude/validate-key',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({key:key||undefined})});
+  const hint=$('#hint-claude');
+  if(r.ok){if(hint)hint.innerHTML=`<span style="color:var(--green)">Valid! Org: ${h(r.orgName||'OK')}</span>`;}
+  else{if(hint)hint.innerHTML=`<span style="color:var(--red)">${h(r.error||'Invalid')}</span>${r.hint?' \u2014 '+h(r.hint):''}`;}
+  if(btn){btn.disabled=false;btn.textContent='Validate';}
+}
+
+function vSettings(){
+  return`<div class="ov" onclick="if(event.target===this){S.modal=null;render()}">
+  <div class="modal anim">
+    <div style="display:flex;justify-content:space-between;align-items:start;margin-bottom:18px">
+      <div><h2 style="font-size:15px;font-weight:800">Settings</h2><p style="font-size:10px;color:var(--t3);margin-top:2px">Configure API keys</p></div>
+      <button class="btn" style="padding:5px 8px" onclick="S.modal=null;render()">&times;</button>
+    </div>
+
+    <div style="padding-bottom:14px;margin-bottom:14px;border-bottom:1px solid var(--b1)">
+      <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px">
+        <span style="font-size:11px;font-weight:700;color:var(--chatgpt)">ChatGPT</span>
+        ${S.config?.chatgpt?.configured?`<span class="dot dot-g"></span>`:`<span class="dot" style="background:var(--t4)"></span>`}
+      </div>
+      <label>Access Token</label>
+      <div style="display:flex;gap:6px">
+        <input type="password" id="c_chatgpt" placeholder="Auto-detected or paste Bearer token" style="flex:1"/>
+        <button class="btn" id="btn-refresh-chatgpt" onclick="refreshChatGPT()" style="white-space:nowrap;color:var(--chatgpt)">Auto-detect</button>
+      </div>
+      <p class="hint" id="hint-chatgpt">
+        <strong>Easiest:</strong> Install <a href="https://github.com/openai/codex" target="_blank">OpenAI Codex CLI</a>, run <code class="mono">codex</code> to login, then click <strong>Auto-detect</strong> above.<br>
+        <strong>Manual:</strong> Open <a href="https://chatgpt.com" target="_blank">chatgpt.com</a> &rarr; DevTools (F12) &rarr; Network tab &rarr; find any request &rarr; copy <code class="mono">Authorization: Bearer eyJ...</code> header value.
+      </p>
+    </div>
+
+    <div style="padding-bottom:14px;margin-bottom:14px;border-bottom:1px solid var(--b1)">
+      <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px">
+        <span style="font-size:11px;font-weight:700;color:var(--copilot)">Copilot</span>
+        ${S.config?.copilot?.configured?`<span class="dot dot-g"></span>`:`<span class="dot" style="background:var(--t4)"></span>`}
+      </div>
+      <label>GitHub PAT</label>
+      <input type="password" id="c_copilot" placeholder="ghp_..."/>
+      <p class="hint">Create a <strong>Classic</strong> token at <a href="https://github.com/settings/tokens" target="_blank">github.com/settings/tokens</a> with <code class="mono">read:user</code> scope.</p>
+    </div>
+
+    <div style="padding-bottom:14px;margin-bottom:14px;border-bottom:1px solid var(--b1)">
+      <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px">
+        <span style="font-size:11px;font-weight:700;color:var(--claude)">Claude</span>
+        ${S.config?.claude?.configured?`<span class="dot dot-g"></span>`:`<span class="dot" style="background:var(--t4)"></span>`}
+      </div>
+      <label>Session Key</label>
+      <div style="display:flex;gap:6px">
+        <input type="password" id="c_claude" placeholder="sk-ant-sid01-..." style="flex:1"/>
+        <button class="btn" id="btn-validate-claude" onclick="validateClaude()" style="white-space:nowrap;color:var(--claude)">Validate</button>
+      </div>
+      <p class="hint" id="hint-claude">
+        <strong>Steps:</strong> Open <a href="https://claude.ai" target="_blank">claude.ai</a> &rarr; DevTools (F12) &rarr; <strong>Application</strong> tab &rarr; Cookies &rarr; <code class="mono">claude.ai</code> &rarr; copy <code class="mono">sessionKey</code> value.<br>
+        <strong>Note:</strong> Session keys can expire. If you get errors, re-copy a fresh key and click <strong>Validate</strong>.
+      </p>
+    </div>
+
+    <div style="padding-bottom:14px;margin-bottom:14px;border-bottom:1px solid var(--b1)">
+      <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px">
+        <span style="font-size:11px;font-weight:700;color:var(--ollama)">Ollama</span>
+        ${S.config?.ollama?.configured?`<span class="dot dot-g"></span>`:`<span class="dot" style="background:var(--t4)"></span>`}
+      </div>
+      <label>API Key</label>
+      <input type="password" id="c_ollama" placeholder="Paste from ollama.com/settings/keys"/>
+      <p class="hint">Get at <a href="https://ollama.com/settings/keys" target="_blank">ollama.com/settings/keys</a>.</p>
+      <label style="margin-top:10px">Session Cookie <span style="font-weight:400;color:var(--t4)">(for real usage %)</span></label>
+      <input type="password" id="c_ollama_cookie" placeholder="__Secure-session cookie value"/>
+      <p class="hint" id="hint-ollama-cookie">
+        ${S.config?.ollama?.hasSessionCookie?`<span style="color:var(--green)">Session cookie configured</span><br>`:""}
+        <strong>Steps:</strong> Open <a href="https://ollama.com/settings" target="_blank">ollama.com/settings</a> &rarr; DevTools (F12) &rarr; <strong>Application</strong> tab &rarr; Cookies &rarr; <code class="mono">ollama.com</code> &rarr; copy <code class="mono">__Secure-session</code> value.<br>
+        <strong>Why:</strong> Ollama has no usage API. This cookie lets us scrape the real session/weekly usage percentages from the settings page.
+      </p>
+    </div>
+
+    <div style="padding-bottom:14px;margin-bottom:14px;border-bottom:1px solid var(--b1)">
+      <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px">
+        <span style="font-size:11px;font-weight:700;color:var(--zai)">Z.AI GLM</span>
+        ${S.config?.zai?.configured?`<span class="dot dot-g"></span>`:`<span class="dot" style="background:var(--t4)"></span>`}
+      </div>
+      <label>Auth Token</label>
+      <input type="password" id="c_zai" placeholder="Paste Z.AI auth token"/>
+      <p class="hint">Get from the Z.AI dashboard or coding plugin settings. The token is used raw in the Authorization header (no Bearer prefix).</p>
+    </div>
+
+    <div style="display:flex;justify-content:end;gap:6px;margin-top:18px">
+      <button class="btn" onclick="S.modal=null;render()">Cancel</button>
+      <button class="btn btn-p" onclick="
+        const d={};
+        const ch=$('#c_chatgpt').value;if(ch)d.CHATGPT_ACCESS_TOKEN=ch;
+        const co=$('#c_copilot').value;if(co)d.GITHUB_TOKEN=co;
+        const cl=$('#c_claude').value;if(cl)d.CLAUDE_SESSION_KEY=cl;
+        const ol=$('#c_ollama').value;if(ol)d.OLLAMA_API_KEY=ol;
+        const oc=$('#c_ollama_cookie').value;if(oc)d.OLLAMA_SESSION_COOKIE=oc;
+        const za=$('#c_zai').value;if(za)d.ZAI_AUTH_TOKEN=za;
+        if(Object.keys(d).length)saveCfg(d);else{S.modal=null;render()}
+      ">Save</button>
+    </div>
+  </div></div>`;
+}
+
+// ━━━ INIT ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+render();loadAll();
+</script>
+</body>
+</html>
