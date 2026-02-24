@@ -24,11 +24,11 @@
     type: "yasb.custom.CustomWidget"
     options:
       label: "<span>\udb80\udcab</span> {data[chatgpt_session]}%"
-      label_alt: "<span>\udb80\udcab</span> GPT {data[chatgpt_session]}% | {data[chatgpt_weekly]}%w"
+      label_alt: "<span>\udb80\udcab</span> GPT {data[chatgpt_session]}% ({data[chatgpt_session_reset]}) | {data[chatgpt_weekly]}%w ({data[chatgpt_weekly_reset]})"
       class_name: "ai-chatgpt"
       label_placeholder: "\udb80\udcab --"
       tooltip: true
-      tooltip_label: "ChatGPT Plus\nSession: {data[chatgpt_session]}%\nWeekly: {data[chatgpt_weekly]}%"
+      tooltip_label: "ChatGPT Plus\nSession: {data[chatgpt_session]}% (Resets in {data[chatgpt_session_reset]})\nWeekly: {data[chatgpt_weekly]}% (Resets in {data[chatgpt_weekly_reset]})"
       exec_options:
         run_cmd: "curl.exe -s http://localhost:3456/api/yasb/summary"
         run_interval: 120000
@@ -43,11 +43,11 @@
     type: "yasb.custom.CustomWidget"
     options:
       label: "<span>\uf113</span> {data[copilot_pct]}%"
-      label_alt: "<span>\uf113</span> Cop {data[copilot_used]}/{data[copilot_total]}"
+      label_alt: "<span>\uf113</span> Cop {data[copilot_used]}/{data[copilot_total]} ({data[copilot_reset]})"
       class_name: "ai-copilot"
       label_placeholder: "\uf113 --"
       tooltip: true
-      tooltip_label: "GitHub Copilot Pro\nUsed: {data[copilot_used]}/{data[copilot_total]} premium\nPercent: {data[copilot_pct]}%"
+      tooltip_label: "GitHub Copilot Pro\nUsed: {data[copilot_used]}/{data[copilot_total]} premium\nPercent: {data[copilot_pct]}%\nResets in: {data[copilot_reset]}"
       exec_options:
         run_cmd: "curl.exe -s http://localhost:3456/api/yasb/summary"
         run_interval: 120000
@@ -62,11 +62,11 @@
     type: "yasb.custom.CustomWidget"
     options:
       label: "<span>\udb81\ude2e</span> {data[claude_session]}%"
-      label_alt: "<span>\udb81\ude2e</span> Cla {data[claude_session]}% | {data[claude_weekly]}%w"
+      label_alt: "<span>\udb81\ude2e</span> Cla {data[claude_session]}% ({data[claude_session_reset]}) | {data[claude_weekly]}%w ({data[claude_weekly_reset]})"
       class_name: "ai-claude"
       label_placeholder: "\udb81\ude2e --"
       tooltip: true
-      tooltip_label: "Claude Pro\nSession: {data[claude_session]}%\nWeekly: {data[claude_weekly]}%"
+      tooltip_label: "Claude Pro\nSession: {data[claude_session]}% (Resets in {data[claude_session_reset]})\nWeekly: {data[claude_weekly]}% (Resets in {data[claude_weekly_reset]})"
       exec_options:
         run_cmd: "curl.exe -s http://localhost:3456/api/yasb/summary"
         run_interval: 120000
@@ -81,11 +81,11 @@
     type: "yasb.custom.CustomWidget"
     options:
       label: "<span>\uf201</span> {data[ollama_session]}%"
-      label_alt: "<span>\uf201</span> Oll {data[ollama_session]}% | {data[ollama_weekly]}%w"
+      label_alt: "<span>\uf201</span> Oll {data[ollama_session]}% ({data[ollama_session_reset]}) | {data[ollama_weekly]}%w ({data[ollama_weekly_reset]})"
       class_name: "ai-ollama"
       label_placeholder: "\uf201 --"
       tooltip: true
-      tooltip_label: "Ollama\nSession: {data[ollama_session]}%\nWeekly: {data[ollama_weekly]}%"
+      tooltip_label: "Ollama\nSession: {data[ollama_session]}% (Resets in {data[ollama_session_reset]})\nWeekly: {data[ollama_weekly]}% (Resets in {data[ollama_weekly_reset]})"
       exec_options:
         run_cmd: "curl.exe -s http://localhost:3456/api/yasb/summary"
         run_interval: 120000
@@ -124,11 +124,11 @@
 #    type: "yasb.custom.CustomWidget"
 #    options:
 #      label: "<span>\udb80\udcab</span> GPT {data[chatgpt_session]}% | Cop {data[copilot_pct]}% | Cla {data[claude_session]}% | Oll {data[ollama_session]}% | Z {data[zai_token_pct]}%"
-#      label_alt: "<span>\udb80\udcab</span> GPT {data[chatgpt_session]}/{data[chatgpt_weekly]}% | Cop {data[copilot_used]}/{data[copilot_total]} | Cla {data[claude_session]}/{data[claude_weekly]}% | Oll {data[ollama_session]}/{data[ollama_weekly]}% | Z Tk{data[zai_token_pct]}%/MCP{data[zai_mcp_pct]}%"
+#      label_alt: "<span>\udb80\udcab</span> GPT {data[chatgpt_session]}%({data[chatgpt_session_reset]})/{data[chatgpt_weekly]}%({data[chatgpt_weekly_reset]}) | Cop {data[copilot_used]}/{data[copilot_total]} ({data[copilot_reset]}) | Cla {data[claude_session]}%({data[claude_session_reset]})/{data[claude_weekly]}%({data[claude_weekly_reset]}) | Oll {data[ollama_session]}%({data[ollama_session_reset]})/{data[ollama_weekly]}%({data[ollama_weekly_reset]}) | Z Tk{data[zai_token_pct]}%/MCP{data[zai_mcp_pct]}%"
 #      class_name: "ai-usage-combined"
 #      label_placeholder: "\udb80\udcab Loading..."
 #      tooltip: true
-#      tooltip_label: "AI Command Center\nChatGPT: {data[chatgpt_session]}% session / {data[chatgpt_weekly]}% weekly\nCopilot: {data[copilot_used]}/{data[copilot_total]} premium\nClaude: {data[claude_session]}% session / {data[claude_weekly]}% weekly\nOllama: {data[ollama_session]}% session / {data[ollama_weekly]}% weekly\nZ.AI: Token {data[zai_token_pct]}% / MCP {data[zai_mcp_pct]}%"
+#      tooltip_label: "AI Command Center\nChatGPT: {data[chatgpt_session]}% session ({data[chatgpt_session_reset]}) / {data[chatgpt_weekly]}% weekly ({data[chatgpt_weekly_reset]})\nCopilot: {data[copilot_used]}/{data[copilot_total]} premium ({data[copilot_reset]})\nClaude: {data[claude_session]}% session ({data[claude_session_reset]}) / {data[claude_weekly]}% weekly ({data[claude_weekly_reset]})\nOllama: {data[ollama_session]}% session ({data[ollama_session_reset]}) / {data[ollama_weekly]}% weekly ({data[ollama_weekly_reset]})\nZ.AI: Token {data[zai_token_pct]}% / MCP {data[zai_mcp_pct]}%"
 #      exec_options:
 #        run_cmd: "curl.exe -s http://localhost:3456/api/yasb/summary"
 #        run_interval: 120000

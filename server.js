@@ -536,12 +536,26 @@ app.get("/api/platforms", (_req, res) => {
 app.get("/api/yasb/summary", async (_req, res) => {
   try {
     const result = {
-      chatgpt_session: null, chatgpt_weekly: null, chatgpt_ok: false,
-      copilot_used: null, copilot_total: null, copilot_pct: null, copilot_ok: false,
-      claude_session: null, claude_weekly: null, claude_ok: false,
-      ollama_session: null, ollama_weekly: null, ollama_ok: false,
+      chatgpt_session: null, chatgpt_weekly: null, chatgpt_session_reset: null, chatgpt_weekly_reset: null, chatgpt_ok: false,
+      copilot_used: null, copilot_total: null, copilot_pct: null, copilot_reset: null, copilot_ok: false,
+      claude_session: null, claude_weekly: null, claude_session_reset: null, claude_weekly_reset: null, claude_ok: false,
+      ollama_session: null, ollama_weekly: null, ollama_session_reset: null, ollama_weekly_reset: null, ollama_ok: false,
       zai_token_pct: null, zai_mcp_pct: null, zai_ok: false,
     };
+
+    const formatSeconds = (s) => {
+      if (!s || s <= 0) return "--";
+      if (s < 3600) return Math.floor(s / 60) + "m";
+      return Math.floor(s / 3600) + "h";
+    };
+
+    const formatUntil = (iso) => {
+      if (!iso) return "--";
+      const ms = new Date(iso) - Date.now();
+      if (ms <= 0) return "now";
+      return formatSeconds(ms / 1000);
+    };
+
     const [chatgptR, copilotR, claudeR, ollamaR, zaiR] = await Promise.allSettled([
       CFG.CHATGPT_ACCESS_TOKEN ? apiFetch("https://chatgpt.com/backend-api/wham/usage", {
         headers: { "Authorization": `Bearer ${CFG.CHATGPT_ACCESS_TOKEN}` },
@@ -575,6 +589,8 @@ app.get("/api/yasb/summary", async (_req, res) => {
       const rl = chatgpt.data.rate_limit;
       result.chatgpt_session = Math.round(rl.primary_window?.used_percent || 0);
       result.chatgpt_weekly = Math.round(rl.secondary_window?.used_percent || 0);
+      result.chatgpt_session_reset = formatSeconds(rl.primary_window?.reset_after_seconds);
+      result.chatgpt_weekly_reset = formatSeconds(rl.secondary_window?.reset_after_seconds);
       result.chatgpt_ok = true;
     }
     const copilot = copilotR.status === "fulfilled" ? copilotR.value : null;
@@ -582,7 +598,11 @@ app.get("/api/yasb/summary", async (_req, res) => {
       const prem = copilot.data.quota_snapshots.premium_interactions;
       result.copilot_used = prem.entitlement - (prem.remaining || 0);
       result.copilot_total = prem.entitlement;
-      result.copilot_pct = Math.round(100 - (prem.percent_remaining || 100));
+      result.copilot_pct = prem.entitlement > 0 ? Math.round((result.copilot_used / prem.entitlement) * 100) : 0;
+      if (copilot.data.quota_reset_date) {
+        const resetDiff = new Date(copilot.data.quota_reset_date) - Date.now();
+        result.copilot_reset = resetDiff > 0 ? Math.ceil(resetDiff / 86400000) + 'd' : '--';
+      }
       result.copilot_ok = true;
     }
     const claude = claudeR.status === "fulfilled" ? claudeR.value : null;
@@ -591,12 +611,16 @@ app.get("/api/yasb/summary", async (_req, res) => {
       const sd = claude.data.seven_day || {};
       result.claude_session = fh.utilization != null ? Math.round(fh.utilization) : null;
       result.claude_weekly = sd.utilization != null ? Math.round(sd.utilization) : null;
+      result.claude_session_reset = formatUntil(fh.resets_at);
+      result.claude_weekly_reset = formatUntil(sd.resets_at);
       result.claude_ok = true;
     }
     const ollama = ollamaR.status === "fulfilled" ? ollamaR.value : null;
     if (ollama?.scraped) {
       result.ollama_session = ollama.session_pct != null ? Math.round(ollama.session_pct) : null;
       result.ollama_weekly = ollama.weekly_pct != null ? Math.round(ollama.weekly_pct) : null;
+      result.ollama_session_reset = formatUntil(ollama.session_resets_at);
+      result.ollama_weekly_reset = formatUntil(ollama.weekly_resets_at);
       result.ollama_ok = true;
     }
     const zai = zaiR.status === "fulfilled" ? zaiR.value : null;
