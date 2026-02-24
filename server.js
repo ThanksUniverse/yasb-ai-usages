@@ -546,7 +546,9 @@ app.get("/api/yasb/summary", async (_req, res) => {
     const formatSeconds = (s) => {
       if (!s || s <= 0) return "--";
       if (s < 3600) return Math.floor(s / 60) + "m";
-      return Math.floor(s / 3600) + "h";
+      const h = Math.floor(s / 3600);
+      const m = Math.floor((s % 3600) / 60);
+      return m > 0 ? `${h}h ${m}m` : `${h}h`;
     };
 
     const formatUntil = (iso) => {
