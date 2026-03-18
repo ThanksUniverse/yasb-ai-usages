@@ -15,13 +15,15 @@
 .ai-claude { color: #e09145; }
 .ai-ollama { color: #a78bfa; }
 .ai-zai { color: #4f8cff; }
+.ai-status { color: #22c55e; }
 
 /* Widget labels */
 .ai-chatgpt .label,
 .ai-copilot .label,
 .ai-claude .label,
 .ai-ollama .label,
-.ai-zai .label {
+.ai-zai .label,
+.ai-status .label {
   font-family: "JetBrainsMono Nerd Font", "JetBrains Mono", monospace;
   font-size: 11px;
   font-weight: 600;
@@ -36,6 +38,7 @@
 .ai-claude .label { border-bottom: 2px solid #e09145; }
 .ai-ollama .label { border-bottom: 2px solid #a78bfa; }
 .ai-zai .label { border-bottom: 2px solid #4f8cff; }
+.ai-status .label { border-bottom: 2px solid #22c55e; }
 
 /* Combined widget style */
 .ai-usage-combined .label {

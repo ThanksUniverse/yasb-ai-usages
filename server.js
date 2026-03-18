@@ -5,6 +5,64 @@ const os = require("os");
 const crypto = require("crypto");
 const { Ollama } = require("ollama");
 
+// ── Encryption helpers (AES-256-GCM) ─────────────────────────────
+const ENC_KEY_PATH = path.join(__dirname, "data", ".enc.key");
+let _encKey = null;
+function loadEncKey() {
+  if (_encKey) return _encKey;
+  try {
+    if (fs.existsSync(ENC_KEY_PATH)) {
+      const key = fs.readFileSync(ENC_KEY_PATH);
+      if (key.length === 32) { _encKey = key; return _encKey; }
+    }
+  } catch {}
+  return null;
+}
+function ensureEncKey() {
+  const existing = loadEncKey();
+  if (existing) return existing;
+  const key = crypto.randomBytes(32);
+  fs.mkdirSync(path.dirname(ENC_KEY_PATH), { recursive: true });
+  fs.writeFileSync(ENC_KEY_PATH, key, { mode: 0o600 });
+  _encKey = key;
+  return _encKey;
+}
+function encryptValue(v) {
+  const key = ensureEncKey();
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv("aes-256-gcm", key, iv);
+  const enc = Buffer.concat([cipher.update(v, "utf8"), cipher.final()]);
+  const tag = cipher.getAuthTag();
+  return `ENC:${iv.toString("base64")}:${tag.toString("base64")}:${enc.toString("base64")}`;
+}
+function decodeStoredValue(v) {
+  if (!v || !v.startsWith("ENC:")) return { ok: true, value: v, encrypted: false };
+  try {
+    const key = loadEncKey();
+    if (!key) return { ok: false, encrypted: true, error: `Missing encryption key at ${ENC_KEY_PATH}` };
+    const parts = v.slice(4).split(":");
+    if (parts.length !== 3) return { ok: false, encrypted: true, error: "Malformed encrypted value" };
+    const [ivB64, tagB64, encB64] = parts;
+    const iv = Buffer.from(ivB64, "base64");
+    const tag = Buffer.from(tagB64, "base64");
+    const enc = Buffer.from(encB64, "base64");
+    const decipher = crypto.createDecipheriv("aes-256-gcm", key, iv);
+    decipher.setAuthTag(tag);
+    return {
+      ok: true,
+      value: Buffer.concat([decipher.update(enc), decipher.final()]).toString("utf8"),
+      encrypted: true,
+    };
+  } catch (error) {
+    return { ok: false, encrypted: true, error: error.message };
+  }
+}
+const ENCRYPT_KEYS = new Set([
+  "OLLAMA_API_KEY", "OLLAMA_SESSION_COOKIE",
+  "CLAUDE_SESSION_KEY", "CHATGPT_ACCESS_TOKEN",
+  "GITHUB_TOKEN", "ZAI_AUTH_TOKEN",
+]);
+
 const app = express();
 app.disable("x-powered-by");
 app.use(express.json({ limit: "32kb", strict: true }));
@@ -26,7 +84,7 @@ app.use("/api", (req, res, next) => {
 app.use(express.static(path.join(__dirname, "public")));
 
 const ENV_PATH = path.join(__dirname, ".env");
-const CFG = {
+const DEFAULT_CFG = {
   OLLAMA_API_KEY: "",
   OLLAMA_LOCAL_HOST: "http://localhost:11434",
   OLLAMA_SESSION_COOKIE: "",
@@ -38,8 +96,34 @@ const CFG = {
   BIND_HOST: "127.0.0.1",
   PORT: "3456",
 };
+const CFG = { ...DEFAULT_CFG };
+const PERSISTED_CFG = { ...DEFAULT_CFG };
+const RAW_PERSISTED_VALUES = new Map();
+let CONFIG_LOAD_WARNINGS = [];
+
+function resetConfig(target) {
+  for (const [k, v] of Object.entries(DEFAULT_CFG)) target[k] = v;
+}
+
+function setPersistedConfigValue(key, value) {
+  PERSISTED_CFG[key] = value;
+  RAW_PERSISTED_VALUES.delete(key);
+}
+
+function saveConfigValue(key, value) {
+  CFG[key] = value;
+  setPersistedConfigValue(key, value);
+}
 
 function loadEnv() {
+  const currentAdminToken = CFG.ADMIN_TOKEN;
+  resetConfig(CFG);
+  resetConfig(PERSISTED_CFG);
+  CFG.ADMIN_TOKEN = currentAdminToken;
+  RAW_PERSISTED_VALUES.clear();
+  CONFIG_LOAD_WARNINGS = [];
+  const plaintextSensitiveKeys = new Set();
+
   if (fs.existsSync(ENV_PATH)) {
     for (const line of fs.readFileSync(ENV_PATH, "utf-8").split("\n")) {
       const t = line.trim();
@@ -49,7 +133,16 @@ function loadEnv() {
       const k = t.slice(0, eq).trim();
       let v = t.slice(eq + 1).trim();
       if ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'"))) v = v.slice(1, -1);
-      if (k in CFG) CFG[k] = v;
+      if (!(k in CFG)) continue;
+      const decoded = decodeStoredValue(v);
+      if (decoded.ok) {
+        CFG[k] = decoded.value;
+        PERSISTED_CFG[k] = decoded.value;
+        if (ENCRYPT_KEYS.has(k) && decoded.value && !decoded.encrypted) plaintextSensitiveKeys.add(k);
+        continue;
+      }
+      RAW_PERSISTED_VALUES.set(k, v);
+      CONFIG_LOAD_WARNINGS.push(`${k}: ${decoded.error}`);
     }
   }
   for (const k of Object.keys(CFG)) if (process.env[k]) CFG[k] = process.env[k];
@@ -63,9 +156,19 @@ function loadEnv() {
       }
     } catch {}
   }
+  return { plaintextSensitiveKeys: [...plaintextSensitiveKeys] };
 }
-loadEnv();
+const envLoad = loadEnv();
 if (!CFG.ADMIN_TOKEN) CFG.ADMIN_TOKEN = crypto.randomBytes(24).toString("hex");
+if (CONFIG_LOAD_WARNINGS.length) {
+  for (const warning of CONFIG_LOAD_WARNINGS) {
+    console.warn(`[config] Preserving stored value for ${warning}`);
+  }
+}
+if (envLoad.plaintextSensitiveKeys.length && !CONFIG_LOAD_WARNINGS.length) {
+  saveEnv();
+  console.log(`[config] Encrypted ${envLoad.plaintextSensitiveKeys.length} plaintext secret(s) in .env`);
+}
 
 function isValidPort(v) {
   const n = Number.parseInt(String(v), 10);
@@ -121,12 +224,15 @@ function requireAdmin(req, res, next) {
 
 function saveEnv() {
   const lines = ["# AI Usage Dashboard Configuration"];
-  for (const [k, v] of Object.entries(CFG)) {
+  for (const [k, v] of Object.entries(PERSISTED_CFG)) {
     if (k === "PORT" || k === "ADMIN_TOKEN" || k === "BIND_HOST") continue;
-    lines.push(`${k}=${v}`);
+    const storedValue = RAW_PERSISTED_VALUES.has(k)
+      ? RAW_PERSISTED_VALUES.get(k)
+      : (ENCRYPT_KEYS.has(k) && v ? encryptValue(v) : v);
+    lines.push(`${k}=${storedValue}`);
   }
-  lines.push(`BIND_HOST=${CFG.BIND_HOST}`);
-  lines.push(`PORT=${CFG.PORT}`, "");
+  lines.push(`BIND_HOST=${PERSISTED_CFG.BIND_HOST}`);
+  lines.push(`PORT=${PERSISTED_CFG.PORT}`, "");
   fs.writeFileSync(ENV_PATH, lines.join("\n"), { mode: 0o600 });
 }
 
@@ -157,7 +263,7 @@ function computeOllamaWindows(entries) {
       eval_tokens: sum(fiveH, "et"),
       total_tokens: sum(fiveH, "pt") + sum(fiveH, "et"),
       total_duration_ms: Math.round(sum(fiveH, "dur") / 1e6),
-      resets_at: fiveH.length ? new Date(Math.min(...fiveH.map(e => e.ts)) + 5 * 3600 * 1000).toISOString() : null,
+      resets_at: fiveH.length ? new Date(fiveH.reduce((m, e) => Math.min(m, e.ts), Infinity) + 5 * 3600 * 1000).toISOString() : null,
     },
     seven_day: {
       requests: sevenD.length,
@@ -165,7 +271,7 @@ function computeOllamaWindows(entries) {
       eval_tokens: sum(sevenD, "et"),
       total_tokens: sum(sevenD, "pt") + sum(sevenD, "et"),
       total_duration_ms: Math.round(sum(sevenD, "dur") / 1e6),
-      resets_at: sevenD.length ? new Date(Math.min(...sevenD.map(e => e.ts)) + 7 * 24 * 3600 * 1000).toISOString() : null,
+      resets_at: sevenD.length ? new Date(sevenD.reduce((m, e) => Math.min(m, e.ts), Infinity) + 7 * 24 * 3600 * 1000).toISOString() : null,
     },
   };
 }
@@ -251,7 +357,7 @@ app.post("/api/config", requireAdmin, (req, res) => {
     if (input[k] === undefined) continue;
     const safe = sanitizeConfigValue(k, input[k]);
     if (safe === null) return res.status(400).json({ ok: false, error: `Invalid value for ${k}` });
-    CFG[k] = safe;
+    saveConfigValue(k, safe);
   }
   saveEnv();
   loadEnv();
@@ -275,7 +381,7 @@ app.post("/api/chatgpt/refresh-token", requireAdmin, (_req, res) => {
         return res.json({ ok: false, error: "Token in auth.json is expired", expiry, hint: "Run 'codex' to re-authenticate, then refresh again." });
       }
     } catch {}
-    CFG.CHATGPT_ACCESS_TOKEN = token;
+    saveConfigValue("CHATGPT_ACCESS_TOKEN", token);
     saveEnv();
     res.json({ ok: true, expiry, hint: "Token loaded from ~/.codex/auth.json" });
   } catch (e) {
@@ -636,17 +742,28 @@ app.get("/api/yasb/summary", async (_req, res) => {
       }
       result.zai_ok = true;
     }
+    // Normalize nulls to "--" so YASB labels never render "None" or empty
+    for (const k of Object.keys(result)) {
+      if (result[k] === null) result[k] = "--";
+    }
     res.json(result);
   } catch (e) {
     res.json({ error: e.message });
   }
 });
 
+app.get("/api/health", (_req, res) => {
+  res.json({ ok: 1, indicator: "\uF111" });
+});
+
+// Catch unmatched /api/* before SPA fallback — return JSON 404 instead of HTML
+app.all("/api/*", (_req, res) => res.status(404).json({ ok: false, error: "Not found" }));
+
 app.get("*", (_req, res) => res.sendFile(path.join(__dirname, "public", "index.html")));
 
 const PORT = isValidPort(CFG.PORT) ? Number.parseInt(CFG.PORT, 10) : 3456;
 const HOST = isValidHost(CFG.BIND_HOST) ? CFG.BIND_HOST : "127.0.0.1";
-app.listen(PORT, HOST, () => {
+const server = app.listen(PORT, HOST, () => {
   console.log(`\n  AI Usage Dashboard`);
   console.log(`  http://${HOST === "0.0.0.0" ? "localhost" : HOST}:${PORT}\n`);
   console.log(`  ChatGPT   ${CFG.CHATGPT_ACCESS_TOKEN ? "OK" : "--"}`);
@@ -656,3 +773,18 @@ app.listen(PORT, HOST, () => {
   console.log(`  Z.AI      ${CFG.ZAI_AUTH_TOKEN ? "OK" : "--"}`);
   console.log(`  Admin     ${CFG.ADMIN_TOKEN ? "OK" : "--"}\n`);
 });
+
+server.on("error", (err) => {
+  if (err.code === "EADDRINUSE") {
+    console.error(`\n  ERROR: Port ${PORT} is already in use. Is the server already running?\n`);
+  } else {
+    console.error(`\n  ERROR: Server failed to start: ${err.message}\n`);
+  }
+  process.exit(1);
+});
+
+function shutdown() {
+  server.close(() => process.exit(0));
+}
+process.on("SIGINT", shutdown);
+process.on("SIGTERM", shutdown);
