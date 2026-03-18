@@ -113,10 +113,10 @@
   ai_status:
     type: "yasb.custom.CustomWidget"
     options:
-      label: "{data[indicator]} AI"
-      label_alt: "{data[indicator]} AI Dashboard"
+      label: "{data[indicator]}"
+      label_alt: "{data[indicator]}"
       class_name: "ai-status"
-      label_placeholder: "\uf10c AI"
+      label_placeholder: "\uf10c"
       tooltip: true
       tooltip_label: "AI Usage Dashboard\nStatus: Online\nLeft-click: open dashboard\nRight-click: refresh data"
       exec_options:
