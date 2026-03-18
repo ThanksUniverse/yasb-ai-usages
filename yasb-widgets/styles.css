@@ -27,18 +27,30 @@
   font-family: "JetBrainsMono Nerd Font", "JetBrains Mono", monospace;
   font-size: 11px;
   font-weight: 600;
-  padding: 2px 6px;
+  padding: 1px 4px 2px 4px;
   margin: 0 2px;
-  border-radius: 4px;
-  background: rgba(255, 255, 255, 0.04);
+  border-bottom: 2px solid transparent;
 }
 
-.ai-chatgpt .label { border-bottom: 2px solid #10b981; }
-.ai-copilot .label { border-bottom: 2px solid #58a6ff; }
-.ai-claude .label { border-bottom: 2px solid #e09145; }
-.ai-ollama .label { border-bottom: 2px solid #a78bfa; }
-.ai-zai .label { border-bottom: 2px solid #4f8cff; }
-.ai-status .label { border-bottom: 2px solid #22c55e; }
+.ai-chatgpt .label { border-bottom-color: #10b981; }
+.ai-copilot .label { border-bottom-color: #58a6ff; }
+.ai-claude .label { border-bottom-color: #e09145; }
+.ai-ollama .label { border-bottom-color: #a78bfa; }
+.ai-zai .label { border-bottom-color: #4f8cff; }
+
+/* Status — separator + green accent */
+.ai-status .widget-container {
+  padding: 0 2px 0 6px;
+  border-left: 1px solid rgba(255, 255, 255, 0.12);
+  margin-left: 2px;
+}
+
+.ai-status .label {
+  border-bottom-color: #22c55e;
+  color: #22c55e;
+  font-size: 10px;
+  letter-spacing: 0.5px;
+}
 
 /* Combined widget style */
 .ai-usage-combined .label {

@@ -639,30 +639,34 @@ app.get("/api/platforms", (_req, res) => {
   ]);
 });
 
-app.get("/api/yasb/summary", async (_req, res) => {
-  try {
-    const result = {
-      chatgpt_session: null, chatgpt_weekly: null, chatgpt_session_reset: null, chatgpt_weekly_reset: null, chatgpt_ok: false,
-      copilot_used: null, copilot_total: null, copilot_pct: null, copilot_reset: null, copilot_ok: false,
-      claude_session: null, claude_weekly: null, claude_session_reset: null, claude_weekly_reset: null, claude_ok: false,
-      ollama_session: null, ollama_weekly: null, ollama_session_reset: null, ollama_weekly_reset: null, ollama_ok: false,
-      zai_token_pct: null, zai_mcp_pct: null, zai_ok: false,
-    };
+// ── YASB summary cache ─────────────────────────────────────────────
+let _summaryCache = null;
+let _summaryCacheTime = 0;
+let _summaryFetch = null;
+const SUMMARY_CACHE_TTL = 90_000; // 90 s — widgets poll every 120 s
 
-    const formatSeconds = (s) => {
-      if (!s || s <= 0) return "--";
-      if (s < 3600) return Math.floor(s / 60) + "m";
-      const h = Math.floor(s / 3600);
-      const m = Math.floor((s % 3600) / 60);
-      return m > 0 ? `${h}h ${m}m` : `${h}h`;
-    };
+const formatSeconds = (s) => {
+  if (!s || s <= 0) return "--";
+  if (s < 3600) return Math.floor(s / 60) + "m";
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  return m > 0 ? `${h}h ${m}m` : `${h}h`;
+};
+const formatUntil = (iso) => {
+  if (!iso) return "--";
+  const ms = new Date(iso) - Date.now();
+  if (ms <= 0) return "now";
+  return formatSeconds(ms / 1000);
+};
 
-    const formatUntil = (iso) => {
-      if (!iso) return "--";
-      const ms = new Date(iso) - Date.now();
-      if (ms <= 0) return "now";
-      return formatSeconds(ms / 1000);
-    };
+async function _fetchSummary() {
+  const result = {
+    chatgpt_session: null, chatgpt_weekly: null, chatgpt_session_reset: null, chatgpt_weekly_reset: null, chatgpt_ok: false,
+    copilot_used: null, copilot_total: null, copilot_pct: null, copilot_reset: null, copilot_ok: false,
+    claude_session: null, claude_weekly: null, claude_session_reset: null, claude_weekly_reset: null, claude_ok: false,
+    ollama_session: null, ollama_weekly: null, ollama_session_reset: null, ollama_weekly_reset: null, ollama_ok: false,
+    zai_token_pct: null, zai_mcp_pct: null, zai_ok: false,
+  };
 
     const [chatgptR, copilotR, claudeR, ollamaR, zaiR] = await Promise.allSettled([
       CFG.CHATGPT_ACCESS_TOKEN ? apiFetch("https://chatgpt.com/backend-api/wham/usage", {
@@ -742,14 +746,45 @@ app.get("/api/yasb/summary", async (_req, res) => {
       }
       result.zai_ok = true;
     }
-    // Normalize nulls to "--" so YASB labels never render "None" or empty
-    for (const k of Object.keys(result)) {
-      if (result[k] === null) result[k] = "--";
-    }
-    res.json(result);
-  } catch (e) {
-    res.json({ error: e.message });
+  // Normalize nulls → "--" so YASB labels never render "None"
+  for (const k of Object.keys(result)) {
+    if (result[k] === null) result[k] = "--";
   }
+  _summaryCache = result;
+  _summaryCacheTime = Date.now();
+  return result;
+}
+
+async function computeSummary() {
+  if (_summaryCache && Date.now() - _summaryCacheTime < SUMMARY_CACHE_TTL) return _summaryCache;
+  if (_summaryFetch) return _summaryFetch; // deduplicate concurrent requests
+  _summaryFetch = _fetchSummary().finally(() => { _summaryFetch = null; });
+  return _summaryFetch;
+}
+
+app.get("/api/yasb/summary", async (_req, res) => {
+  try { res.json(await computeSummary()); } catch (e) { res.json({ error: e.message }); }
+});
+
+// Per-service endpoints — 204 when not configured (triggers YASB hide_empty)
+for (const [svc, okKey] of [
+  ["chatgpt", "chatgpt_ok"], ["copilot", "copilot_ok"],
+  ["claude", "claude_ok"],   ["ollama",  "ollama_ok"],
+  ["zai",    "zai_ok"],
+]) {
+  app.get(`/api/yasb/${svc}`, async (_req, res) => {
+    try {
+      const data = await computeSummary();
+      data[okKey] ? res.json(data) : res.status(204).end();
+    } catch { res.status(204).end(); }
+  });
+}
+
+// Force-refresh — clears cache then returns fresh data
+app.get("/api/yasb/refresh", async (_req, res) => {
+  _summaryCache = null;
+  _summaryCacheTime = 0;
+  try { res.json(await computeSummary()); } catch (e) { res.json({ error: e.message }); }
 });
 
 app.get("/api/health", (_req, res) => {
