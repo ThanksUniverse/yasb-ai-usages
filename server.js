@@ -1196,6 +1196,9 @@ let _summaryCache = null;
 let _summaryCacheTime = 0;
 let _summaryFetch = null;
 const SUMMARY_CACHE_TTL = 90_000; // 90 s — widgets poll every 120 s
+let _healthCache = null;
+let _healthCacheTime = 0;
+const HEALTH_CACHE_TTL = 5_000; // match YASB poll interval so all monitors see identical snapshot
 
 const formatSeconds = (s) => {
   if (!s || s <= 0) return "--";
@@ -1366,12 +1369,20 @@ app.get("/api/yasb/refresh", async (_req, res) => {
 
 app.get("/api/health", (_req, res) => {
   const now = Date.now();
+  const updating = !!_summaryFetch;
+  // Serve a cached snapshot so all monitors polling within the same 5 s window
+  // receive the exact same object — eliminating per-monitor countdown skew.
+  // Bust the cache immediately when an update is in flight (updating flag changed).
+  if (_healthCache && !updating && !_healthCache.updating && now - _healthCacheTime < HEALTH_CACHE_TTL) {
+    return res.json(_healthCache);
+  }
   const nextSecs = _summaryCacheTime > 0
     ? Math.max(0, Math.round((SUMMARY_CACHE_TTL - (now - _summaryCacheTime)) / 1000))
     : 0;
-  const updating = !!_summaryFetch;
   const nextLabel = updating ? "\u22EF" : (nextSecs > 0 ? `${nextSecs}s` : "--");
-  res.json({ ok: 1, indicator: "\uF111", next_s: nextSecs, next_label: nextLabel, updating });
+  _healthCache = { ok: 1, indicator: "\uF111", next_s: nextSecs, next_label: nextLabel, updating };
+  _healthCacheTime = now;
+  res.json(_healthCache);
 });
 
 // Catch unmatched /api/* before SPA fallback — return JSON 404 instead of HTML
