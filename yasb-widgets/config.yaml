@@ -132,15 +132,15 @@
   ai_status:
     type: "yasb.custom.CustomWidget"
     options:
-      label: "{data[indicator]}"
-      label_alt: "{data[indicator]}"
+      label: "{data[indicator]} {data[next_label]}"
+      label_alt: "{data[indicator]} {data[next_label]}"
       class_name: "ai-status"
       label_placeholder: "\uf10c"
       tooltip: true
-      tooltip_label: "AI Usage Dashboard\nStatus: Online\nLeft-click: open dashboard\nRight-click: refresh data"
+      tooltip_label: "AI Usage Dashboard\nStatus: Online\nNext refresh in: {data[next_s]}s\nLeft-click: open dashboard\nRight-click: refresh data"
       exec_options:
         run_cmd: "curl.exe -sf --max-time 2 http://localhost:3456/api/health"
-        run_interval: 30000
+        run_interval: 5000
         return_format: "json"
         hide_empty: false
       callbacks:

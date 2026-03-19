@@ -213,7 +213,11 @@ async function refreshService(id,evt){
   loadService(id);
 }
 
+const REFRESH_INTERVAL=120000;
+let _nextRefreshAt=Date.now()+REFRESH_INTERVAL;
+
 async function refreshAll(){
+  _nextRefreshAt=Date.now()+REFRESH_INTERVAL;
   const ids=configuredServices();
   ids.forEach(id=>{S[id].loading=true;});
   render();
@@ -221,12 +225,33 @@ async function refreshAll(){
     api(serviceEndpoints[id]).then(data=>{
       S[id]={...(S[id]||{}),data,loading:false,lastRefresh:new Date()};
       render();
+      _tickRefreshBtn();
     });
   });
 }
 
+// 1-second ticker — updates button text directly without full re-render
+function _tickRefreshBtn(){
+  const el=document.getElementById("refresh-btn");
+  if(!el)return;
+  const anyLoading=["chatgpt","copilot","claude","ollama","zai","gemini"].some(id=>S[id]?.loading);
+  if(anyLoading){
+    el.innerHTML=`<span class="spin" style="display:inline-block;width:10px;height:10px;border:1.5px solid var(--t4);border-top-color:var(--t1);border-radius:50%;vertical-align:middle;margin-right:5px"></span>Updating...`;
+    el.disabled=true;
+    el.style.opacity="0.7";
+  }else{
+    const secs=Math.max(0,Math.round((_nextRefreshAt-Date.now())/1000));
+    const countdown=secs<60?`${secs}s`:`${Math.floor(secs/60)}m ${secs%60}s`;
+    const cdColor=secs<15?"var(--amber)":"var(--t4)";
+    el.innerHTML=`Refresh All<span style="font-size:9px;color:${cdColor};margin-left:6px;font-weight:400;font-variant-numeric:tabular-nums">${countdown}</span>`;
+    el.disabled=false;
+    el.style.opacity="1";
+  }
+}
+setInterval(_tickRefreshBtn,1000);
+setInterval(()=>{_nextRefreshAt=Date.now()+REFRESH_INTERVAL;refreshAll();},REFRESH_INTERVAL);
+
 async function saveCfg(data){await api("/api/config",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(data)});S.modal=null;await loadConfig();loadAll();}
-setInterval(()=>{refreshAll()},120000);
 
 // ━━━ HELPERS ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 function configuredServices(){
@@ -282,7 +307,7 @@ function render(){
         </div>
       </div>
       <div style="display:flex;gap:6px">
-        <button class="btn" onclick="refreshAll()">Refresh All</button>
+        <button class="btn" id="refresh-btn" onclick="refreshAll()">${(()=>{const anyLoading=["chatgpt","copilot","claude","ollama","zai","gemini"].some(id=>S[id]?.loading);if(anyLoading)return`<span class="spin" style="display:inline-block;width:10px;height:10px;border:1.5px solid var(--t4);border-top-color:var(--t1);border-radius:50%;vertical-align:middle;margin-right:5px"></span>Updating...`;const secs=Math.max(0,Math.round((_nextRefreshAt-Date.now())/1000));const countdown=secs<60?`${secs}s`:`${Math.floor(secs/60)}m ${secs%60}s`;const cdColor=secs<15?"var(--amber)":"var(--t4)";return`Refresh All<span style="font-size:9px;color:${cdColor};margin-left:6px;font-weight:400;font-variant-numeric:tabular-nums">${countdown}</span>`;})()}</button>
         <button class="btn" onclick="S.modal='config';render()">Settings</button>
       </div>
     </div>

@@ -588,7 +588,15 @@ function geminiBuildModelRow(model, quota, usage) {
   const rpdLimit = rpd?.effectiveLimit ?? rpd?.defaultLimit ?? null;
   const rpmUsed = rpmUsage.peak || 0;
   const tpmUsed = tpmUsage.peak || 0;
-  const rpdUsed = rpdUsage.sum || 0;
+  // Use dedicated daily metric when available; fall back to summing today's RPM points (since midnight UTC)
+  let rpdUsed = rpdUsage.sum || 0;
+  if (rpdUsed === 0 && rpmUsage.points.length > 0) {
+    const midnightUTC = new Date();
+    midnightUTC.setUTCHours(0, 0, 0, 0);
+    rpdUsed = rpmUsage.points
+      .filter(p => p.ts && new Date(p.ts) >= midnightUTC)
+      .reduce((acc, p) => acc + (p.value || 0), 0);
+  }
   const maxPct = Math.max(
     rpmLimit > 0 ? (rpmUsed / rpmLimit) * 100 : 0,
     tpmLimit > 0 ? (tpmUsed / tpmLimit) * 100 : 0,
@@ -627,7 +635,7 @@ function geminiBuildModelRow(model, quota, usage) {
         points: tpmUsage.points || [],
       },
       rpd: {
-        metric: "generativelanguage.googleapis.com/quota/predict_requests_per_model_per_day_paid_tier_1/usage",
+        metric: "generativelanguage.googleapis.com/quota/generate_requests_per_model_per_day/usage",
         peak_24h: rpdUsage.peak || 0,
         sum_24h: rpdUsage.sum || 0,
         points: rpdUsage.points || [],
@@ -728,15 +736,12 @@ async function _doGeminiUsageFetch() {
 
   const project = { ...projectR.project, source: projectSource, detected: projectSource === "gcloud" };
   const projectRef = project.number;
-  const [quotaR, rpmR, tpmPaidR, tpmFreeR, rpdPaid1R, rpdPaid2R, rpdPaid3R, rpdFreeR] = await Promise.all([
+  const [quotaR, rpmR, tpmPaidR, tpmFreeR, rpdR] = await Promise.all([
     geminiFetchQuotaMetrics(projectRef, auth.token),
     geminiFetchUsageSeries(projectRef, auth.token, "generativelanguage.googleapis.com/quota/generate_requests_per_model/usage"),
     geminiFetchUsageSeries(projectRef, auth.token, "generativelanguage.googleapis.com/quota/generate_content_paid_tier_input_token_count/usage"),
     geminiFetchUsageSeries(projectRef, auth.token, "generativelanguage.googleapis.com/quota/generate_content_free_tier_input_token_count/usage"),
-    geminiFetchUsageSeries(projectRef, auth.token, "generativelanguage.googleapis.com/quota/predict_requests_per_model_per_day_paid_tier_1/usage"),
-    geminiFetchUsageSeries(projectRef, auth.token, "generativelanguage.googleapis.com/quota/predict_requests_per_model_per_day_paid_tier_2/usage"),
-    geminiFetchUsageSeries(projectRef, auth.token, "generativelanguage.googleapis.com/quota/predict_requests_per_model_per_day_paid_tier_3/usage"),
-    geminiFetchUsageSeries(projectRef, auth.token, "generativelanguage.googleapis.com/quota/predict_requests_per_model_per_day_free_tier/usage"),
+    geminiFetchUsageSeries(projectRef, auth.token, "generativelanguage.googleapis.com/quota/generate_requests_per_model_per_day/usage"),
   ]);
 
   if (!quotaR.ok) {
@@ -773,20 +778,7 @@ async function _doGeminiUsageFetch() {
     rpm: buildGeminiUsageMap(rpmR.ok ? rpmR.timeSeries : [], ["GenerateRequestsPerMinutePerProjectPerModel"]),
     tpmPaid: buildGeminiUsageMap(tpmPaidR.ok ? tpmPaidR.timeSeries : [], ["GenerateContentPaidTierInputTokensPerModelPerMinute"]),
     tpmFree: buildGeminiUsageMap(tpmFreeR.ok ? tpmFreeR.timeSeries : [], ["GenerateContentFreeTierInputTokensPerModelPerMinute"]),
-    rpd: buildGeminiUsageMap(
-      [
-        ...(rpdPaid1R.ok ? rpdPaid1R.timeSeries : []),
-        ...(rpdPaid2R.ok ? rpdPaid2R.timeSeries : []),
-        ...(rpdPaid3R.ok ? rpdPaid3R.timeSeries : []),
-        ...(rpdFreeR.ok ? rpdFreeR.timeSeries : []),
-      ],
-      [
-        "PredictRequestsPerDayPerProjectPerModelPaidTier1",
-        "PredictRequestsPerDayPerProjectPerModelPaidTier2",
-        "PredictRequestsPerDayPerProjectPerModelPaidTier3",
-        "PredictRequestsPerDayPerProjectPerModelFreeTier",
-      ]
-    ),
+    rpd: buildGeminiUsageMap(rpdR.ok ? rpdR.timeSeries : [], []),
   };
 
   const models = [...modelNames]
@@ -819,14 +811,12 @@ async function _doGeminiUsageFetch() {
       "Quota values come from Service Usage consumerQuotaMetrics",
       "Usage peaks come from Monitoring timeSeries over the last 24h",
       "TPM falls back to the free-tier quota when the paid-tier bucket is missing",
-      "RPD uses a direct Monitoring series when available and otherwise remains zero",
+      "RPD uses generate_requests_per_model_per_day/usage; falls back to today's UTC RPM sum if that metric is absent",
     ],
     seriesStatus: {
       rpm: rpmR.ok ? "ok" : (rpmR.notFound ? "missing" : "error"),
       tpm: (tpmPaidR.ok || tpmFreeR.ok) ? "ok" : ((tpmPaidR.notFound || tpmFreeR.notFound) ? "missing" : "error"),
-      rpd: (rpdPaid1R.ok || rpdPaid2R.ok || rpdPaid3R.ok || rpdFreeR.ok)
-        ? "ok"
-        : ((rpdPaid1R.notFound || rpdPaid2R.notFound || rpdPaid3R.notFound || rpdFreeR.notFound) ? "missing" : "error"),
+      rpd: rpdR.ok ? "ok" : (rpdR.notFound ? "missing" : "error"),
     },
     models,
     selectedModel,
@@ -1375,7 +1365,13 @@ app.get("/api/yasb/refresh", async (_req, res) => {
 });
 
 app.get("/api/health", (_req, res) => {
-  res.json({ ok: 1, indicator: "\uF111" });
+  const now = Date.now();
+  const nextSecs = _summaryCacheTime > 0
+    ? Math.max(0, Math.round((SUMMARY_CACHE_TTL - (now - _summaryCacheTime)) / 1000))
+    : 0;
+  const updating = !!_summaryFetch;
+  const nextLabel = updating ? "\u22EF" : (nextSecs > 0 ? `${nextSecs}s` : "--");
+  res.json({ ok: 1, indicator: "\uF111", next_s: nextSecs, next_label: nextLabel, updating });
 });
 
 // Catch unmatched /api/* before SPA fallback — return JSON 404 instead of HTML
