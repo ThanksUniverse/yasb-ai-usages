@@ -10,7 +10,7 @@
   --bg:#060609;--s1:#0b0b10;--s2:#101016;--s3:#16161d;--s4:#1c1c25;
   --b1:rgba(255,255,255,.04);--b2:rgba(255,255,255,.07);--b3:rgba(255,255,255,.12);
   --t1:#ededf2;--t2:#8e8e9a;--t3:#58586a;--t4:#363643;
-  --chatgpt:#10b981;--copilot:#58a6ff;--claude:#e09145;--ollama:#a78bfa;--zai:#4f8cff;
+  --chatgpt:#10b981;--copilot:#58a6ff;--claude:#e09145;--ollama:#a78bfa;--zai:#4f8cff;--gemini:#8ab4f8;
   --red:#ef4444;--green:#22c55e;--amber:#f59e0b;
   --r:14px;--rs:8px;
 }
@@ -122,6 +122,7 @@ const S={
   claude:{data:null,loading:true,lastRefresh:null},
   ollama:{data:null,loading:true,lastRefresh:null},
   zai:{data:null,loading:true,lastRefresh:null},
+  gemini:{data:null,loading:true,lastRefresh:null,selectedId:null},
 };
 const $=s=>document.querySelector(s);
 const h=s=>(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
@@ -166,13 +167,14 @@ const serviceEndpoints={
   claude:"/api/claude/usage",
   ollama:"/api/ollama/usage",
   zai:"/api/zai/usage",
+  gemini:"/api/gemini/usage",
 };
 
 async function loadService(id){
   S[id].loading=true;
   render();
   const data=await api(serviceEndpoints[id]);
-  S[id]={data,loading:false,lastRefresh:new Date()};
+  S[id]={...(S[id]||{}),data,loading:false,lastRefresh:new Date()};
   render();
 }
 
@@ -186,13 +188,13 @@ async function loadConfig(){
 async function loadAll(){
   await loadConfig();
   // Fire all service loads in parallel - each renders independently
-  const ids=["chatgpt","copilot","claude","ollama","zai"];
+  const ids=["chatgpt","copilot","claude","ollama","zai","gemini"];
   ids.forEach(id=>{S[id].loading=true;});
   render();
   // Each one resolves independently
   ids.forEach(id=>{
     api(serviceEndpoints[id]).then(data=>{
-      S[id]={data,loading:false,lastRefresh:new Date()};
+      S[id]={...(S[id]||{}),data,loading:false,lastRefresh:new Date()};
       if(S.initialLoad){
         const allDone=ids.every(i=>!S[i].loading);
         if(allDone)S.initialLoad=false;
@@ -213,7 +215,7 @@ async function refreshAll(){
   render();
   ids.forEach(id=>{
     api(serviceEndpoints[id]).then(data=>{
-      S[id]={data,loading:false,lastRefresh:new Date()};
+      S[id]={...(S[id]||{}),data,loading:false,lastRefresh:new Date()};
       render();
     });
   });
@@ -224,7 +226,7 @@ setInterval(()=>{refreshAll()},120000);
 
 // ━━━ HELPERS ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 function configuredServices(){
-  const ids=["chatgpt","copilot","claude","ollama","zai"];
+  const ids=["chatgpt","copilot","claude","ollama","zai","gemini"];
   return ids.filter(id=>{
     const d=S[id]?.data;
     return d&&d.configured;
@@ -282,8 +284,8 @@ function render(){
     </div>
     <nav class="tabs" style="margin-top:14px">
       ${tabList.map(t=>{
-        const names={overview:"Overview",chatgpt:"ChatGPT",copilot:"Copilot",claude:"Claude",ollama:"Ollama",zai:"Z.AI"};
-        const cols={overview:"#fff",chatgpt:"var(--chatgpt)",copilot:"var(--copilot)",claude:"var(--claude)",ollama:"var(--ollama)",zai:"var(--zai)"};
+        const names={overview:"Overview",chatgpt:"ChatGPT",copilot:"Copilot",claude:"Claude",ollama:"Ollama",zai:"Z.AI",gemini:"Gemini"};
+        const cols={overview:"#fff",chatgpt:"var(--chatgpt)",copilot:"var(--copilot)",claude:"var(--claude)",ollama:"var(--ollama)",zai:"var(--zai)",gemini:"var(--gemini)"};
         return`<button class="tab${S.tab===t?" on":""}" onclick="S.tab='${t}';render()">
           ${names[t]||t}${S.tab===t?`<style>.tab.on::after{background:${cols[t]||"#fff"}}</style>`:""}
         </button>`;
@@ -294,7 +296,7 @@ function render(){
   // If tab is not in tabList (e.g. service got unconfigured), fall back to overview
   if(!tabList.includes(S.tab))S.tab="overview";
 
-  const views={overview:vOverview,chatgpt:vChatGPT,copilot:vCopilot,claude:vClaude,ollama:vOllama,zai:vZAI};
+  const views={overview:vOverview,chatgpt:vChatGPT,copilot:vCopilot,claude:vClaude,ollama:vOllama,zai:vZAI,gemini:vGemini};
   o+=(views[S.tab]||vOverview)();
 
   o+=`</div>`;
@@ -328,8 +330,8 @@ function vOverview(){
 }
 
 function overviewCard(id,index){
-  const names={chatgpt:"ChatGPT",copilot:"Copilot",claude:"Claude",ollama:"Ollama",zai:"Z.AI"};
-  const colors={chatgpt:"var(--chatgpt)",copilot:"var(--copilot)",claude:"var(--claude)",ollama:"var(--ollama)",zai:"var(--zai)"};
+  const names={chatgpt:"ChatGPT",copilot:"Copilot",claude:"Claude",ollama:"Ollama",zai:"Z.AI",gemini:"Gemini"};
+  const colors={chatgpt:"var(--chatgpt)",copilot:"var(--copilot)",claude:"var(--claude)",ollama:"var(--ollama)",zai:"var(--zai)",gemini:"var(--gemini)"};
   const color=colors[id];
   const name=names[id];
   const svc=S[id];
@@ -341,7 +343,7 @@ function overviewCard(id,index){
   if(loading){
     content=`<div class="card-loading"><div class="spinner"></div><div class="loading-text">Connecting...</div></div>`;
   }else if(isOk(id)){
-    const getData={chatgpt:getOverviewChatGPT,copilot:getOverviewCopilot,claude:getOverviewClaude,ollama:getOverviewOllama,zai:getOverviewZAI}[id];
+    const getData={chatgpt:getOverviewChatGPT,copilot:getOverviewCopilot,claude:getOverviewClaude,ollama:getOverviewOllama,zai:getOverviewZAI,gemini:getOverviewGemini}[id];
     const data=getData?getData():null;
     if(data){
       content+=`<div style="display:flex;gap:14px;align-items:start">`;
@@ -485,6 +487,182 @@ function getOverviewZAI(){
     if(mcp.currentUsage!=null&&mcp.total!=null)rows.push({l:"MCP used",v:`${mcp.currentUsage}/${mcp.total}`,c:"var(--zai)"});
   }
   return{gauge:gauge(tkPct,"var(--zai)",76,5,"Token"),rows,bar:{pct:mcpPct,color:"var(--zai)"}};
+}
+
+function geminiNumber(v){
+  if(v==null||v==="")return null;
+  if(typeof v==="number"&&Number.isFinite(v))return v;
+  if(typeof v==="string"){
+    const n=Number(v);
+    return Number.isFinite(n)?n:v;
+  }
+  return v;
+}
+
+function geminiPick(source, keys){
+  if(!source||typeof source!=="object")return null;
+  for(const key of keys){
+    if(source[key]!==undefined&&source[key]!==null&&source[key]!=="")return geminiNumber(source[key]);
+  }
+  return null;
+}
+
+function geminiMetric(source, key){
+  const nested=source?.[key]&&typeof source[key]==="object"?source[key]:null;
+  const target=nested||{};
+  const flatPrefix=key.charAt(0).toUpperCase()+key.slice(1);
+  const limit=geminiPick(target,["limit","max","quota","cap","allowed","budget","total"])??geminiPick(source,[`${key}Limit`,`${key}_limit`,`${key}Quota`,`${key}_quota`,`${flatPrefix}Limit`,`${flatPrefix}Quota`]);
+  const used=geminiPick(target,["used","usage","current","currentUsage","value","count","requests","tokens"])??geminiPick(source,[`${key}Used`,`${key}_used`,`${key}Usage`,`${key}_usage`,`${flatPrefix}Used`,`${flatPrefix}Usage`]);
+  const peak=geminiPick(target,["peak","peakUsed","peak_usage","recentPeak","maxUsed","max_usage","recent_peak"])??geminiPick(source,[`${key}Peak`,`${key}_peak`,`${key}PeakUsed`,`${key}_peak_used`,`${flatPrefix}Peak`,`${flatPrefix}PeakUsed`])??used;
+  const reset=geminiPick(target,["resetAfterSeconds","reset_after_seconds","resetSeconds","resetsAfterSeconds","resets_after_seconds"])??geminiPick(source,[`${key}ResetAfterSeconds`,`${key}_reset_after_seconds`,`${flatPrefix}ResetAfterSeconds`,`${flatPrefix}ResetAfter`]);
+  const series=Array.isArray(target.series)?target.series:Array.isArray(source?.[`${key}Series`])?source[`${key}Series`]:Array.isArray(source?.[`${key}_series`])?source[`${key}_series`]:Array.isArray(source?.[`${flatPrefix}Series`])?source[`${flatPrefix}Series`]:Array.isArray(source?.[`${flatPrefix}_series`])?source[`${flatPrefix}_series`]:null;
+  const pct=typeof limit==="number"&&limit>0&&typeof used==="number"?used/limit*100:typeof limit==="number"&&limit>0&&typeof peak==="number"?peak/limit*100:null;
+  return { limit, used, peak, reset, series, pct };
+}
+
+function geminiModelsFromData(d){
+  if(Array.isArray(d?.models)&&d.models.length){
+    return d.models.map(item=>{
+      const rpmLimit=item.rpm?.limit??item.limits?.rpm??null;
+      const tpmLimit=item.tpm?.limit??item.limits?.tpm??null;
+      const rpdLimit=item.rpd?.limit??item.limits?.rpd??null;
+      const rpmUsed=item.rpm?.used??item.usage?.rpm_peak_24h??0;
+      const tpmUsed=item.tpm?.used??item.usage?.tpm_peak_24h??0;
+      const rpdUsed=item.rpd?.used??item.usage?.rpd_used_24h??0;
+      const rpmPct=typeof rpmLimit==="number"&&rpmLimit>0?rpmUsed/rpmLimit*100:0;
+      const tpmPct=typeof tpmLimit==="number"&&tpmLimit>0?tpmUsed/tpmLimit*100:0;
+      const rpdPct=typeof rpdLimit==="number"&&rpdLimit>0?rpdUsed/rpdLimit*100:0;
+      return{
+        id:String(item.id||item.model||item.displayName||item.name||"").trim(),
+        name:String(item.displayName||item.name||item.model||"Unknown model").trim(),
+        category:String(item.category||"").trim(),
+        rpm:{limit:rpmLimit,used:rpmUsed,peak:item.rpm?.peak??rpmUsed,series:item.rpm?.series??item.series?.rpm?.points??[],pct:rpmPct},
+        tpm:{limit:tpmLimit,used:tpmUsed,peak:item.tpm?.peak??tpmUsed,series:item.tpm?.series??item.series?.tpm?.points??[],pct:tpmPct},
+        rpd:{limit:rpdLimit,used:rpdUsed,peak:item.rpd?.peak??rpdUsed,series:item.rpd?.series??item.series?.rpd?.points??[],pct:rpdPct},
+        recentPeak:Math.max(rpmUsed||0,tpmUsed||0,rpdUsed||0),
+        maxPct:Math.max(item.maxPct||0,rpmPct||0,tpmPct||0,rpdPct||0),
+        source:String(d?.source||item?.source||"").trim(),
+      };
+    }).sort((a,b)=>(b.maxPct||0)-(a.maxPct||0)||a.name.localeCompare(b.name));
+  }
+  const containers=[
+    d?.models,
+    d?.modelLimits,
+    d?.modelUsage,
+    d?.limits,
+    d?.rateLimits,
+    d?.usage?.models,
+    d?.usage?.modelLimits,
+    d?.usage?.modelUsage,
+    d?.usage?.limits,
+    d?.usage?.rateLimits,
+  ];
+  const out=[];
+  const seen=new Set();
+  const pushItem=(item,keyHint)=>{
+    if(!item||typeof item!=="object")return;
+    const modelId=String(item.id||item.model||item.modelId||item.model_id||item.name||item.displayName||keyHint||"").trim();
+    const label=String(item.name||item.displayName||item.modelName||item.model||modelId||"Unknown model").trim();
+    const category=String(item.category||item.tier||item.plan||item.type||item.window||item.limitName||item.limit_name||"").trim();
+    const rpm=geminiMetric(item,"rpm");
+    const tpm=geminiMetric(item,"tpm");
+    const rpd=geminiMetric(item,"rpd");
+    const maxPct=Math.max(rpm.pct||0,tpm.pct||0,rpd.pct||0);
+    const recentPeak=geminiPick(item,["recentPeak","recent_peak","peak","peakUsage","maxUsage"]);
+    const key=`${modelId}::${category}`;
+    if(seen.has(key))return;
+    seen.add(key);
+    out.push({
+      id:modelId||label,
+      name:label,
+      category,
+      rpm,
+      tpm,
+      rpd,
+      recentPeak,
+      maxPct,
+      source:String(item.source||d?.source||"").trim(),
+    });
+  };
+  for(const container of containers){
+    if(Array.isArray(container)){
+      container.forEach(item=>pushItem(item));
+    }else if(container&&typeof container==="object"){
+      if(container.id||container.model||container.modelId||container.model_id||container.name||container.displayName){
+        pushItem(container);
+      }else{
+        for(const [key,item] of Object.entries(container)){
+          if(Array.isArray(item)) item.forEach(entry=>pushItem(entry,key));
+          else if(item&&typeof item==="object") pushItem(item,key);
+        }
+      }
+    }
+  }
+  out.sort((a,b)=>(b.maxPct||0)-(a.maxPct||0)||a.name.localeCompare(b.name));
+  return out;
+}
+
+function geminiMetricStat(label, metric, color){
+  const pct=typeof metric?.pct==="number"?metric.pct:0;
+  const value=metric?.used!=null&&metric?.limit!=null?`${fmt(metric.used)} / ${fmt(metric.limit)}`:metric?.peak!=null?fmt(metric.peak):"--";
+  const peakLabel=metric?.peak!=null?`Peak ${fmt(metric.peak)}`:"Peak --";
+  return`<div class="stat" style="text-align:left;padding:14px">
+    <div class="lbl" style="margin-bottom:8px">${label}</div>
+    <div class="mono" style="font-size:16px;font-weight:700;color:${color}">${h(value)}</div>
+    <div style="margin-top:8px">${pbar(pct,color,4)}</div>
+    <div style="font-size:9px;color:var(--t4);margin-top:5px">${h(peakLabel)}</div>
+  </div>`;
+}
+
+function geminiSeriesValues(series){
+  if(!Array.isArray(series)||!series.length)return [];
+  return series.map(item=>{
+    if(typeof item==="number")return item;
+    if(Array.isArray(item))return geminiNumber(item[item.length-1]);
+    if(item&&typeof item==="object"){
+      return geminiNumber(
+        item.value??item.used??item.usage??item.count??item.y??item.peak??item.rpm??item.tpm??item.rpd
+      );
+    }
+    return null;
+  }).filter(v=>typeof v==="number"&&Number.isFinite(v));
+}
+
+function geminiSeriesStrip(series,color){
+  const values=geminiSeriesValues(series);
+  if(!values.length)return`<div style="font-size:9px;color:var(--t4);margin-top:8px">No recent series</div>`;
+  const max=Math.max(...values,1);
+  const bars=values.slice(-24).map(v=>{
+    const height=Math.max(4,Math.round((v/max)*26));
+    return`<div style="width:5px;height:${height}px;border-radius:2px;background:${color};opacity:${Math.max(.2,Math.min(1,v/max))}"></div>`;
+  }).join("");
+  const last=values[values.length-1];
+  return`<div style="display:flex;align-items:end;gap:3px;height:30px;margin-top:8px">${bars}</div>
+    <div style="font-size:9px;color:var(--t4);margin-top:5px">Latest sample ${fmt(last)}</div>`;
+}
+
+function geminiTopModel(models){
+  return Array.isArray(models)&&models.length?models[0]:null;
+}
+
+function getOverviewGemini(){
+  const d=S.gemini?.data||{};
+  if(!d.configured)return null;
+  const models=geminiModelsFromData(d);
+  const top=geminiTopModel(models);
+  const topPct=top?Math.max(top.rpm?.pct||0,top.tpm?.pct||0,top.rpd?.pct||0):0;
+  const rows=[];
+  if(d.project?.id||d.projectId)rows.push({l:"Project",v:d.project?.id||d.projectId,c:"var(--gemini)"});
+  rows.push({l:"Models",v:`${models.length}`,c:"var(--gemini)"});
+  if(top)rows.push({l:"Top model",v:top.name.slice(0,18),c:"var(--gemini)"});
+  if(top?.recentPeak!=null)rows.push({l:"Recent peak",v:fmt(top.recentPeak),c:"var(--gemini)"});
+  return{
+    gauge:gauge(topPct,"var(--gemini)",76,5,"Peak"),
+    rows,
+    bar:{pct:topPct,color:"var(--gemini)"},
+    plan:d.source||"gcloud",
+    extra:d.hasGcloud?`<span style="font-size:9px;color:var(--t3)">gcloud detected</span>`:"",
+  };
 }
 
 function flattenUsage(obj,prefix=""){
@@ -1117,9 +1295,159 @@ function renderZAIToolUsage(data){
   return o;
 }
 
+// ━━━ GEMINI ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+function setGeminiSelected(id){
+  if(!S.gemini)S.gemini={};
+  S.gemini.selectedId=id;
+  render();
+}
+
+function vGemini(){return detailView("gemini",_vGemini)}
+function _vGemini(){
+  const d=S.gemini?.data||{};
+  if(!d.configured)return empty("gemini","Connect Gemini","Set a Google Cloud project ID and authenticate with `gcloud` on the machine running the server.","https://ai.google.dev/gemini-api/docs/rate-limits");
+  if(d.error)return errCard(d.error,d.hint||"Check Google Cloud project access and local credentials.");
+
+  const models=geminiModelsFromData(d);
+  const selectedId=S.gemini?.selectedId||models[0]?.id||null;
+  const selected=models.find(m=>m.id===selectedId)||models[0]||null;
+  const top=geminiTopModel(models);
+  const topPct=top?Math.max(top.rpm?.pct||0,top.tpm?.pct||0,top.rpd?.pct||0):0;
+  const selectedPct=selected?Math.max(selected.rpm?.pct||0,selected.tpm?.pct||0,selected.rpd?.pct||0):0;
+  const project=d.project?.id||d.projectId||"--";
+  const projectLinkId=d.project?.id||d.projectId||"";
+  const projectName=d.project?.name||"--";
+  const source=d.source||"gcloud";
+  const infoChip=(label,value,color="var(--t2)")=>`<div class="dr" style="flex:1;min-width:120px"><span style="font-size:9.5px;color:var(--t3)">${label}</span><span class="mono" style="font-size:10px;color:${color}">${h(String(value??""))}</span></div>`;
+
+  return`<div style="display:flex;flex-direction:column;gap:12px">
+  <div class="c cp anim" style="position:relative">
+    <div class="accent" style="background:linear-gradient(90deg,transparent,var(--gemini),transparent)"></div>
+    ${cardRefreshBtn("gemini")}
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:18px">
+      <div>
+        <h2 style="font-size:16px;font-weight:800;letter-spacing:-.3px">Gemini</h2>
+        <p style="font-size:10px;color:var(--t3);margin-top:2px">Project rate limits</p>
+      </div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end">
+        ${source?`<span class="ch ch-plan">${h(source)}</span>`:""}
+        ${d.hasGcloud?`<span class="ch ch-ok"><span class="dot dot-g pulse"></span>gcloud ready</span>`:`<span class="ch ch-off">No gcloud</span>`}
+      </div>
+    </div>
+    <div class="g2" style="gap:16px;margin-bottom:4px">
+      <div class="stat" style="display:flex;align-items:center;gap:16px;text-align:left;padding:18px">
+        ${gauge(topPct,"var(--gemini)",100,7,"Peak")}
+        <div style="flex:1">
+          <div class="lbl" style="margin-bottom:4px">Top model</div>
+          <div style="font-size:13px;font-weight:700;margin-bottom:8px">${h(top?top.name:"No model data")}</div>
+          <div style="display:flex;align-items:center;gap:5px;margin-bottom:2px;flex-wrap:wrap">
+            <span style="font-size:10px;color:var(--t3)">Project</span>
+            <span class="mono" style="font-size:11px;color:var(--t2);font-weight:600">${h(project)}</span>
+          </div>
+          <span style="font-size:9px;color:var(--t4)">Peak usage across RPM, TPM, and RPD</span>
+        </div>
+      </div>
+      <div class="stat" style="display:flex;align-items:center;gap:16px;text-align:left;padding:18px">
+        ${gauge(selectedPct,"var(--gemini)",100,7,"Peak")}
+        <div style="flex:1">
+          <div class="lbl" style="margin-bottom:4px">Selected model</div>
+          <div style="font-size:13px;font-weight:700;margin-bottom:8px">${h(selected?selected.name:"Select a model")}</div>
+          <div style="display:flex;align-items:center;gap:5px;margin-bottom:2px;flex-wrap:wrap">
+            <span style="font-size:10px;color:var(--t3)">Project name</span>
+            <span class="mono" style="font-size:11px;color:var(--t2);font-weight:600">${h(projectName)}</span>
+          </div>
+          <span style="font-size:9px;color:var(--t4)">Use the list below to inspect each model</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="g2">
+    <div class="c cp anim a1">
+      <div class="lbl" style="margin-bottom:10px">Models</div>
+      ${models.length?`<div style="display:flex;flex-direction:column;gap:8px">
+        ${models.map((model,index)=>{
+          const active=selected?.id===model.id;
+          const rpm=model.rpm||{};const tpm=model.tpm||{};const rpd=model.rpd||{};
+          const maxPct=Math.max(rpm.pct||0,tpm.pct||0,rpd.pct||0);
+          const smallMeta=[model.category,model.source].filter(Boolean).join(" · ");
+          return`<div class="dr" style="flex-direction:column;align-items:stretch;gap:8px;cursor:pointer;border-color:${active?"var(--gemini)":"var(--b1)"};background:${active?"rgba(138,180,248,.05)":"var(--bg)"}" onclick="setGeminiSelected(${JSON.stringify(model.id)})">
+            <div style="display:flex;justify-content:space-between;gap:8px;align-items:flex-start">
+              <div style="min-width:0">
+                <div style="font-size:11px;font-weight:700">${h(model.name)}</div>
+                ${smallMeta?`<div style="font-size:9px;color:var(--t3);margin-top:2px">${h(smallMeta)}</div>`:""}
+              </div>
+              <div style="display:flex;gap:4px;flex-wrap:wrap;justify-content:flex-end">
+                ${rpm.limit!=null?`<span class="ch ch-plan" style="font-size:8px;padding:2px 6px">RPM ${fmt(rpm.limit)}</span>`:""}
+                ${tpm.limit!=null?`<span class="ch ch-plan" style="font-size:8px;padding:2px 6px">TPM ${fmt(tpm.limit)}</span>`:""}
+                ${rpd.limit!=null?`<span class="ch ch-plan" style="font-size:8px;padding:2px 6px">RPD ${fmt(rpd.limit)}</span>`:""}
+              </div>
+            </div>
+            <div style="font-size:9px;color:var(--t4);display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap">
+              <span>${maxPct?`${Math.round(maxPct)}% peak utilization`:"No utilization data"}</span>
+              <span>${selected?.id===model.id?"Selected":""}</span>
+            </div>
+          </div>`;
+        }).join("")}
+      </div>`:`<div style="font-size:10px;color:var(--t3)">No models returned</div>`}
+    </div>
+
+    <div class="c cp anim a2">
+      <div class="lbl" style="margin-bottom:10px">Selected model</div>
+      ${selected?`<div style="display:flex;flex-direction:column;gap:12px">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
+          <div>
+            <div style="font-size:13px;font-weight:700">${h(selected.name)}</div>
+            ${selected.category?`<div style="font-size:9px;color:var(--t3);margin-top:2px">${h(selected.category)}</div>`:""}
+          </div>
+          <span class="ch ch-plan" style="font-size:8px;padding:2px 7px">${Math.round(Math.max(selected.rpm?.pct||0,selected.tpm?.pct||0,selected.rpd?.pct||0))}% peak</span>
+        </div>
+        <div class="g3" style="gap:10px">
+          ${geminiMetricStat("RPM",selected.rpm,"var(--gemini)")}
+          ${geminiMetricStat("TPM",selected.tpm,"var(--gemini)")}
+          ${geminiMetricStat("RPD",selected.rpd,"var(--gemini)")}
+        </div>
+        <div class="c" style="padding:14px;border-radius:var(--rs);background:var(--bg);border-color:var(--b1)">
+          <div class="lbl" style="margin-bottom:8px">Recent series</div>
+          <div class="g3" style="gap:10px">
+            <div>
+              <div style="font-size:9px;color:var(--t3);margin-bottom:4px">RPM</div>
+              ${geminiSeriesStrip(selected.rpm?.series,"var(--gemini)")}
+            </div>
+            <div>
+              <div style="font-size:9px;color:var(--t3);margin-bottom:4px">TPM</div>
+              ${geminiSeriesStrip(selected.tpm?.series,"var(--gemini)")}
+            </div>
+            <div>
+              <div style="font-size:9px;color:var(--t3);margin-bottom:4px">RPD</div>
+              ${geminiSeriesStrip(selected.rpd?.series,"var(--gemini)")}
+            </div>
+          </div>
+        </div>
+      </div>`:`<span style="font-size:10px;color:var(--t3)">No model selected</span>`}
+    </div>
+  </div>
+
+  <div class="c cp anim a3">
+    <div class="lbl" style="margin-bottom:10px">Project details</div>
+    <div style="display:flex;flex-wrap:wrap;gap:8px">
+      ${infoChip("Project ID",project,"var(--gemini)")}
+      ${infoChip("Project number",d.project?.number||"--")}
+      ${infoChip("Project name",projectName)}
+      ${infoChip("Source",source)}
+      ${infoChip("gcloud",d.hasGcloud?"Available":"Missing",d.hasGcloud?"var(--green)":"var(--t4)")}
+    </div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:12px">
+      ${projectLinkId?`<a href="https://aistudio.google.com/rate-limit?project=${encodeURIComponent(projectLinkId)}" target="_blank" class="btn" style="color:var(--gemini)">AI Studio</a>`:`<a href="https://aistudio.google.com/rate-limit" target="_blank" class="btn" style="color:var(--gemini)">AI Studio</a>`}
+      <a href="https://ai.google.dev/gemini-api/docs/rate-limits" target="_blank" class="btn">Docs</a>
+    </div>
+  </div>
+</div>`;
+}
+
 // ━━━ HELPERS ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 function empty(id,title,desc,link){
-  const c={chatgpt:"var(--chatgpt)",copilot:"var(--copilot)",claude:"var(--claude)",ollama:"var(--ollama)",zai:"var(--zai)"}[id];
+  const c={chatgpt:"var(--chatgpt)",copilot:"var(--copilot)",claude:"var(--claude)",ollama:"var(--ollama)",zai:"var(--zai)",gemini:"var(--gemini)"}[id];
   return`<div class="c cp anim" style="text-align:center;padding:44px 20px">
     <div style="width:40px;height:40px;border-radius:14px;background:${c}08;border:1px solid ${c}10;display:flex;align-items:center;justify-content:center;margin:0 auto 14px;font-size:18px;color:${c};opacity:.4">?</div>
     <h3 style="font-size:14px;font-weight:700;margin-bottom:4px">${title}</h3>
@@ -1240,6 +1568,25 @@ function vSettings(){
       <p class="hint">Get from the Z.AI dashboard or coding plugin settings. The token is used raw in the Authorization header (no Bearer prefix).</p>
     </div>
 
+    <div style="padding-bottom:14px;margin-bottom:14px;border-bottom:1px solid var(--b1)">
+      <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px">
+        <span style="font-size:11px;font-weight:700;color:var(--gemini)">Gemini</span>
+        ${S.config?.gemini?.configured?`<span class="dot dot-g"></span>`:`<span class="dot" style="background:var(--t4)"></span>`}
+      </div>
+      <label>Google Cloud Project ID</label>
+      <input type="text" id="c_gemini_project" placeholder="gen-lang-client-xxxx"/>
+      <label style="margin-top:10px">Access Token <span style="font-weight:400;color:var(--t4)">(optional fallback)</span></label>
+      <input type="password" id="c_gemini_token" placeholder="ya29...."/>
+      <p class="hint" id="hint-gemini">
+        ${S.config?.gemini?.project?.id||S.config?.gemini?.projectId?`<span style="color:var(--green)">Project: ${h(S.config.gemini.project?.id||S.config.gemini.projectId)}</span><br>`:""}
+        ${S.config?.gemini?.source?`<span style="color:var(--t2)">Source: ${h(S.config.gemini.source)}</span><br>`:""}
+        ${S.config?.gemini?.hasGcloud?`<span style="color:var(--green)">gcloud detected on this machine</span><br>`:""}
+        <strong>Steps:</strong> Run <code class="mono">gcloud auth login</code>, then <code class="mono">gcloud config set project &lt;project-id&gt;</code> or paste the project ID above.<br>
+        <strong>Fallback:</strong> You can paste a temporary Google access token above if you don’t want to rely on local <code class="mono">gcloud</code>.<br>
+        <strong>Note:</strong> Gemini rate limits are read from Google Cloud quota and Monitoring APIs.
+      </p>
+    </div>
+
     <div style="display:flex;justify-content:end;gap:6px;margin-top:18px">
       <button class="btn" onclick="S.modal=null;render()">Cancel</button>
       <button class="btn btn-p" onclick="
@@ -1250,6 +1597,8 @@ function vSettings(){
         const ol=$('#c_ollama').value;if(ol)d.OLLAMA_API_KEY=ol;
         const oc=$('#c_ollama_cookie').value;if(oc)d.OLLAMA_SESSION_COOKIE=oc;
         const za=$('#c_zai').value;if(za)d.ZAI_AUTH_TOKEN=za;
+        const gp=$('#c_gemini_project').value;if(gp)d.GEMINI_PROJECT_ID=gp;
+        const gt=$('#c_gemini_token').value;if(gt)d.GEMINI_ACCESS_TOKEN=gt;
         if(Object.keys(d).length)saveCfg(d);else{S.modal=null;render()}
       ">Save</button>
     </div>

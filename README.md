@@ -1,6 +1,6 @@
 # AI Usage Dashboard
 
-A minimal, local dashboard for tracking your AI service usage across ChatGPT, Copilot, Claude, Ollama, and Z.AI in real-time.
+A minimal, local dashboard for tracking your AI service usage across ChatGPT, Copilot, Claude, Ollama, Z.AI, and Gemini in real-time.
 
 ## Features
 
@@ -18,6 +18,7 @@ A minimal, local dashboard for tracking your AI service usage across ChatGPT, Co
 | ChatGPT | Access token | Session/weekly rate limits, credits |
 | Copilot | GitHub PAT | Premium request quota, chat/completion limits |
 | Claude | Session cookie | 5h/7d usage windows, per-model breakdown |
+| Gemini | Google Cloud auth + project ID | Per-model RPM/TPM/RPD limits and 24h peak usage |
 | Ollama | API key + optional cookie | Cloud usage percentages, local model status |
 | Z.AI | Auth token | Token/MCP quotas, model and tool usage |
 
@@ -45,8 +46,17 @@ All configuration is read from `.env` and environment variables. Only fill in wh
 | `OLLAMA_LOCAL_HOST` | Local Ollama host (default `http://localhost:11434`) |
 | `OLLAMA_SESSION_COOKIE` | Enables real Ollama usage % scraping |
 | `ZAI_AUTH_TOKEN` | Z.AI API auth token |
+| `GEMINI_PROJECT_ID` | Google Cloud project ID for Gemini quotas |
+| `GEMINI_ACCESS_TOKEN` | Optional Google OAuth access token fallback |
 | `BIND_HOST` | Network binding (default `127.0.0.1`) |
 | `PORT` | HTTP port (default `3456`) |
+
+Gemini is read from Google Cloud's official Service Usage and Monitoring APIs. The easiest setup is local `gcloud` auth:
+
+```bash
+gcloud auth login
+gcloud config set project YOUR_PROJECT_ID
+```
 
 ## Security
 
@@ -73,6 +83,7 @@ This project is designed for **local, private usage**.
 | `/api/claude/usage` | `GET` | Claude usage windows |
 | `/api/ollama/usage` | `GET` | Ollama cloud/local usage |
 | `/api/zai/usage` | `GET` | Z.AI quota and usage data |
+| `/api/gemini/usage` | `GET` | Gemini per-model rate limits and recent usage |
 
 ## YASB integration
 

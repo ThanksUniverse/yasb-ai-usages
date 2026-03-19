@@ -3,6 +3,7 @@ const path = require("path");
 const fs = require("fs");
 const os = require("os");
 const crypto = require("crypto");
+const { spawnSync } = require("child_process");
 const { Ollama } = require("ollama");
 
 // ── Encryption helpers (AES-256-GCM) ─────────────────────────────
@@ -61,6 +62,7 @@ const ENCRYPT_KEYS = new Set([
   "OLLAMA_API_KEY", "OLLAMA_SESSION_COOKIE",
   "CLAUDE_SESSION_KEY", "CHATGPT_ACCESS_TOKEN",
   "GITHUB_TOKEN", "ZAI_AUTH_TOKEN",
+  "GEMINI_ACCESS_TOKEN",
 ]);
 
 const app = express();
@@ -92,6 +94,8 @@ const DEFAULT_CFG = {
   CHATGPT_ACCESS_TOKEN: "",
   GITHUB_TOKEN: "",
   ZAI_AUTH_TOKEN: "",
+  GEMINI_PROJECT_ID: "",
+  GEMINI_ACCESS_TOKEN: "",
   ADMIN_TOKEN: "",
   BIND_HOST: "127.0.0.1",
   PORT: "3456",
@@ -340,13 +344,484 @@ function ollamaLocal() {
   return new Ollama({ host: CFG.OLLAMA_LOCAL_HOST });
 }
 
+let _gcloudBinary = undefined;
+let _detectedGeminiProjectId = undefined;
+let _gcloudAccessTokenCache = { token: null, source: null, at: 0, errorAt: 0 };
+
+function runCommand(command, args, timeout = 8000) {
+  try {
+    const needsShell = process.platform === "win32" && /\.(cmd|bat)$/i.test(String(command));
+    const res = spawnSync(command, args, {
+      encoding: "utf8",
+      timeout,
+      windowsHide: true,
+      shell: needsShell,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    if (res.error || res.status !== 0) return null;
+    return String(res.stdout || "").trim();
+  } catch {
+    return null;
+  }
+}
+
+function findGcloudBinary() {
+  if (_gcloudBinary !== undefined) return _gcloudBinary;
+  const bins = process.platform === "win32" ? ["gcloud.cmd", "gcloud"] : ["gcloud"];
+  for (const bin of bins) {
+    const out = runCommand(bin, ["--version"], 4000);
+    if (out) {
+      _gcloudBinary = bin;
+      return _gcloudBinary;
+    }
+  }
+  _gcloudBinary = null;
+  return null;
+}
+
+function getDetectedGeminiProjectId() {
+  if (_detectedGeminiProjectId !== undefined) return _detectedGeminiProjectId;
+  const bin = findGcloudBinary();
+  if (!bin) return _detectedGeminiProjectId = null;
+  const out = runCommand(bin, ["config", "get-value", "project"], 4000);
+  if (!out) return _detectedGeminiProjectId = null;
+  const trimmed = out.trim();
+  if (!trimmed || trimmed === "(unset)" || trimmed === "unset") return _detectedGeminiProjectId = null;
+  return _detectedGeminiProjectId = trimmed;
+}
+
+function getGeminiProjectId() {
+  return String(CFG.GEMINI_PROJECT_ID || "").trim() || getDetectedGeminiProjectId();
+}
+
+function getGeminiAccessToken() {
+  const envToken = String(CFG.GEMINI_ACCESS_TOKEN || "").trim();
+  if (envToken) return { token: envToken, source: "env" };
+  const bin = findGcloudBinary();
+  const now = Date.now();
+  if (_gcloudAccessTokenCache.token && now - _gcloudAccessTokenCache.at < 45 * 60 * 1000) {
+    return { token: _gcloudAccessTokenCache.token, source: "gcloud" };
+  }
+  if (bin) {
+    const out = runCommand(bin, ["auth", "print-access-token"], 10000);
+    if (out) {
+      const token = out.trim();
+      if (token && !token.startsWith("(")) {
+        _gcloudAccessTokenCache = { token, source: "gcloud", at: now, errorAt: 0 };
+        return { token, source: "gcloud" };
+      }
+    }
+    _gcloudAccessTokenCache.errorAt = now;
+  }
+  return { token: null, source: null };
+}
+
+async function geminiFetchProject(projectId, token) {
+  const r = await apiFetch(`https://cloudresourcemanager.googleapis.com/v1/projects/${encodeURIComponent(projectId)}`, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+      Accept: "application/json",
+    },
+    timeout: 15000,
+  });
+  if (!r.ok) return { ok: false, error: r.error || `HTTP ${r.status}`, status: r.status || null };
+  return {
+    ok: true,
+    project: {
+      id: r.data?.projectId || projectId,
+      number: r.data?.projectNumber ? String(r.data.projectNumber) : null,
+      name: r.data?.name || null,
+    },
+  };
+}
+
+function geminiDisplayName(model) {
+  const raw = String(model || "").trim();
+  if (!raw) return "Unknown";
+  if (!raw.startsWith("gemini-")) return raw.replace(/_/g, " ");
+  return "Gemini " + raw.slice(7).replace(/-/g, " ").replace(/\b([a-z])/g, s => s.toUpperCase());
+}
+
+function geminiCategoryForModel(model) {
+  const m = String(model || "").toLowerCase();
+  if (m.includes("image")) return "Image models";
+  if (m.includes("audio") || m.includes("tts")) return "Audio models";
+  if (m.includes("embed")) return "Embedding models";
+  return "Text-out models";
+}
+
+function isGeminiModel(model) {
+  return String(model || "").trim().toLowerCase().startsWith("gemini-");
+}
+
+function parseQuotaLimitValue(v) {
+  if (v === null || v === undefined || v === "") return null;
+  const n = Number(v);
+  if (!Number.isFinite(n)) return null;
+  return n < 0 ? null : n;
+}
+
+function extractQuotaBuckets(metrics, metricType) {
+  const metric = (metrics || []).find(m => m.metric === metricType);
+  if (!metric) return [];
+  const out = [];
+  for (const limit of (metric.consumerQuotaLimits || [])) {
+    for (const bucket of (limit.quotaBuckets || [])) {
+      out.push({
+        unit: limit.unit || null,
+        metric: limit.metric || metric.metric,
+        dimensions: bucket.dimensions || {},
+        effectiveLimit: parseQuotaLimitValue(bucket.effectiveLimit),
+        defaultLimit: parseQuotaLimitValue(bucket.defaultLimit),
+      });
+    }
+  }
+  return out;
+}
+
+function pickModelBucket(buckets, model) {
+  const specific = buckets.find(b => b.dimensions?.model === model);
+  if (specific) return specific;
+  return buckets.find(b => !b.dimensions || Object.keys(b.dimensions).length === 0) || null;
+}
+
+function buildGeminiUsageMap(timeSeries, allowedLimitNames = []) {
+  const map = new Map();
+  for (const ts of timeSeries || []) {
+    const model = ts.metric?.labels?.model;
+    const limitName = ts.metric?.labels?.limit_name || "";
+    if (!model) continue;
+    if (allowedLimitNames.length && !allowedLimitNames.includes(limitName)) continue;
+    const series = parseTimeSeriesPoints([ts]);
+    const current = map.get(model) || { points: [], peak: 0, sum: 0 };
+    current.points.push(...series.points);
+    current.peak = Math.max(current.peak, series.peak);
+    current.sum += series.sum;
+    current.points.sort((a, b) => String(a.ts || "").localeCompare(String(b.ts || "")));
+    map.set(model, current);
+  }
+  return map;
+}
+
+function parseTimeSeriesPoints(timeSeries) {
+  const points = [];
+  let sum = 0;
+  let peak = 0;
+  for (const ts of timeSeries || []) {
+    for (const point of (ts.points || [])) {
+      const raw = point.value?.int64Value ?? point.value?.doubleValue ?? point.value?.stringValue;
+      const value = raw === undefined || raw === null ? null : Number(raw);
+      if (!Number.isFinite(value)) continue;
+      const tsValue = point.interval?.endTime || point.interval?.startTime || null;
+      points.push({ ts: tsValue, value });
+      sum += value;
+      if (value > peak) peak = value;
+    }
+  }
+  points.sort((a, b) => String(a.ts || "").localeCompare(String(b.ts || "")));
+  return { points, sum, peak };
+}
+
+async function geminiFetchQuotaMetrics(projectId, token) {
+  const r = await apiFetch(`https://serviceusage.googleapis.com/v1beta1/projects/${encodeURIComponent(projectId)}/services/generativelanguage.googleapis.com/consumerQuotaMetrics?view=FULL`, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+      Accept: "application/json",
+    },
+    timeout: 15000,
+  });
+  if (!r.ok) return { ok: false, error: r.error || `HTTP ${r.status}`, status: r.status || null };
+  return { ok: true, metrics: Array.isArray(r.data?.metrics) ? r.data.metrics : [] };
+}
+
+async function geminiFetchUsageSeries(projectId, token, metricType) {
+  const end = new Date();
+  const start = new Date(end.getTime() - 24 * 3600 * 1000);
+  const params = new URLSearchParams({
+    filter: `metric.type = "${metricType}" AND resource.type = "generativelanguage.googleapis.com/Location" AND resource.labels.location = "global"`,
+    "interval.startTime": start.toISOString(),
+    "interval.endTime": end.toISOString(),
+    view: "FULL",
+    pageSize: "1000",
+  });
+  const r = await apiFetch(`https://monitoring.googleapis.com/v3/projects/${encodeURIComponent(projectId)}/timeSeries?${params.toString()}`, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+      Accept: "application/json",
+    },
+    timeout: 15000,
+  });
+  if (!r.ok) {
+    const notFound = String(r.error || "").includes("Cannot find metric(s)") || Number(r.status) === 404;
+    return { ok: false, notFound, error: r.error || `HTTP ${r.status}` };
+  }
+  return { ok: true, timeSeries: Array.isArray(r.data?.timeSeries) ? r.data.timeSeries : [] };
+}
+
+function geminiBuildModelRow(model, quota, usage) {
+  const rpm = pickModelBucket(quota.rpmBuckets, model);
+  const paidTpm = pickModelBucket(quota.paidTpmBuckets, model);
+  const freeTpm = pickModelBucket(quota.freeTpmBuckets, model);
+  const tpm = paidTpm || freeTpm;
+  const rpd = pickModelBucket(quota.rpdBuckets, model);
+  const rpmUsage = usage.rpm.get(model) || { points: [], peak: 0, sum: 0 };
+  const tpmUsage = (paidTpm ? usage.tpmPaid : usage.tpmFree).get(model) || { points: [], peak: 0, sum: 0 };
+  const rpdUsage = usage.rpd.get(model) || { points: [], peak: 0, sum: 0 };
+  const rpmLimit = rpm?.effectiveLimit ?? rpm?.defaultLimit ?? null;
+  const tpmLimit = tpm?.effectiveLimit ?? tpm?.defaultLimit ?? null;
+  const rpdLimit = rpd?.effectiveLimit ?? rpd?.defaultLimit ?? null;
+  const rpmUsed = rpmUsage.peak || 0;
+  const tpmUsed = tpmUsage.peak || 0;
+  const rpdUsed = rpdUsage.sum || 0;
+  const maxPct = Math.max(
+    rpmLimit > 0 ? (rpmUsed / rpmLimit) * 100 : 0,
+    tpmLimit > 0 ? (tpmUsed / tpmLimit) * 100 : 0,
+    rpdLimit > 0 ? (rpdUsed / rpdLimit) * 100 : 0
+  );
+  return {
+    id: model,
+    model,
+    displayName: geminiDisplayName(model),
+    name: geminiDisplayName(model),
+    category: geminiCategoryForModel(model),
+    maxPct,
+    limits: {
+      rpm: rpmLimit,
+      tpm: tpmLimit,
+      rpd: rpdLimit,
+    },
+    units: {
+      rpm: rpm?.unit || null,
+      tpm: tpm?.unit || null,
+      rpd: rpd?.unit || null,
+    },
+    series: {
+      rpm: {
+        metric: "generativelanguage.googleapis.com/quota/generate_requests_per_model/usage",
+        peak_24h: rpmUsage.peak || 0,
+        sum_24h: rpmUsage.sum || 0,
+        points: rpmUsage.points || [],
+      },
+      tpm: {
+        metric: paidTpm
+          ? "generativelanguage.googleapis.com/quota/generate_content_paid_tier_input_token_count/usage"
+          : "generativelanguage.googleapis.com/quota/generate_content_free_tier_input_token_count/usage",
+        peak_24h: tpmUsage.peak || 0,
+        sum_24h: tpmUsage.sum || 0,
+        points: tpmUsage.points || [],
+      },
+      rpd: {
+        metric: "generativelanguage.googleapis.com/quota/predict_requests_per_model_per_day_paid_tier_1/usage",
+        peak_24h: rpdUsage.peak || 0,
+        sum_24h: rpdUsage.sum || 0,
+        points: rpdUsage.points || [],
+      },
+    },
+    rpm: {
+      limit: rpmLimit,
+      used: rpmUsed,
+      peak: rpmUsed,
+      series: rpmUsage.points || [],
+      unit: rpm?.unit || null,
+    },
+    tpm: {
+      limit: tpmLimit,
+      used: tpmUsed,
+      peak: tpmUsed,
+      series: tpmUsage.points || [],
+      unit: tpm?.unit || null,
+    },
+    rpd: {
+      limit: rpdLimit,
+      used: rpdUsed,
+      peak: rpdUsage.peak || 0,
+      series: rpdUsage.points || [],
+      unit: rpd?.unit || null,
+    },
+    usage: {
+      rpm_peak_24h: rpmUsed,
+      rpm_used_24h: rpmUsed,
+      tpm_peak_24h: tpmUsed,
+      rpd_peak_24h: rpdUsage.peak || 0,
+      rpd_used_24h: rpdUsed,
+      window_hours: 24,
+    },
+  };
+}
+
+async function loadGeminiUsageSnapshot() {
+  const projectId = getGeminiProjectId();
+  if (!projectId) return { configured: false };
+  const projectSource = String(CFG.GEMINI_PROJECT_ID || "").trim() ? "env" : "gcloud";
+  const auth = getGeminiAccessToken();
+  if (!auth.token) {
+    return {
+      configured: true,
+      source: "none",
+      hasGcloud: !!findGcloudBinary(),
+      project: { id: projectId, source: projectSource, detected: projectSource === "gcloud" },
+      projectId,
+      auth: { source: "none", hasEnvToken: false, hasGcloud: !!findGcloudBinary() },
+      tier: null,
+      notes: ["No Google Cloud access token available"],
+      models: [],
+      summary: null,
+      error: "No Gemini Google Cloud access token available",
+      hint: "Install/authenticate gcloud or set GEMINI_ACCESS_TOKEN as an optional fallback.",
+    };
+  }
+
+  const projectR = await geminiFetchProject(projectId, auth.token);
+  if (!projectR.ok || !projectR.project?.number) {
+    return {
+      configured: true,
+      source: auth.source || "none",
+      hasGcloud: !!findGcloudBinary(),
+      project: { id: projectId, number: null, name: null, source: projectSource, detected: projectSource === "gcloud" },
+      projectId,
+      auth: { source: auth.source || "none", hasEnvToken: !!String(CFG.GEMINI_ACCESS_TOKEN || "").trim(), hasGcloud: !!findGcloudBinary() },
+      tier: null,
+      notes: ["Project metadata lookup failed"],
+      models: [],
+      summary: null,
+      error: projectR.error || "Unable to resolve Gemini project metadata",
+      hint: "Grant the authenticated Google account project viewer access, or verify GEMINI_PROJECT_ID.",
+    };
+  }
+
+  const project = { ...projectR.project, source: projectSource, detected: projectSource === "gcloud" };
+  const projectRef = project.number;
+  const [quotaR, rpmR, tpmPaidR, tpmFreeR, rpdPaid1R, rpdPaid2R, rpdPaid3R, rpdFreeR] = await Promise.all([
+    geminiFetchQuotaMetrics(projectRef, auth.token),
+    geminiFetchUsageSeries(projectRef, auth.token, "generativelanguage.googleapis.com/quota/generate_requests_per_model/usage"),
+    geminiFetchUsageSeries(projectRef, auth.token, "generativelanguage.googleapis.com/quota/generate_content_paid_tier_input_token_count/usage"),
+    geminiFetchUsageSeries(projectRef, auth.token, "generativelanguage.googleapis.com/quota/generate_content_free_tier_input_token_count/usage"),
+    geminiFetchUsageSeries(projectRef, auth.token, "generativelanguage.googleapis.com/quota/predict_requests_per_model_per_day_paid_tier_1/usage"),
+    geminiFetchUsageSeries(projectRef, auth.token, "generativelanguage.googleapis.com/quota/predict_requests_per_model_per_day_paid_tier_2/usage"),
+    geminiFetchUsageSeries(projectRef, auth.token, "generativelanguage.googleapis.com/quota/predict_requests_per_model_per_day_paid_tier_3/usage"),
+    geminiFetchUsageSeries(projectRef, auth.token, "generativelanguage.googleapis.com/quota/predict_requests_per_model_per_day_free_tier/usage"),
+  ]);
+
+  if (!quotaR.ok) {
+    return {
+      configured: true,
+      source: auth.source || "none",
+      hasGcloud: !!findGcloudBinary(),
+      project,
+      projectId,
+      auth: { source: auth.source || "none", hasEnvToken: !!String(CFG.GEMINI_ACCESS_TOKEN || "").trim(), hasGcloud: !!findGcloudBinary() },
+      tier: null,
+      notes: ["Quota read failed", "Monitoring will not be queried if quota access is missing"],
+      models: [],
+      summary: null,
+      error: quotaR.error || "Unable to read Gemini quotas",
+      hint: "Grant the authenticated Google account serviceusage and monitoring read access for the project.",
+    };
+  }
+
+  const quota = {
+    rpmBuckets: extractQuotaBuckets(quotaR.metrics, "generativelanguage.googleapis.com/generate_requests_per_model"),
+    paidTpmBuckets: extractQuotaBuckets(quotaR.metrics, "generativelanguage.googleapis.com/generate_content_paid_tier_input_token_count"),
+    freeTpmBuckets: extractQuotaBuckets(quotaR.metrics, "generativelanguage.googleapis.com/generate_content_free_tier_input_token_count"),
+    rpdBuckets: extractQuotaBuckets(quotaR.metrics, "generativelanguage.googleapis.com/generate_requests_per_model_per_day"),
+  };
+  const modelNames = new Set();
+  for (const buckets of [quota.rpmBuckets, quota.paidTpmBuckets, quota.freeTpmBuckets, quota.rpdBuckets]) {
+    for (const bucket of buckets) {
+      if (bucket.dimensions?.model && isGeminiModel(bucket.dimensions.model)) modelNames.add(bucket.dimensions.model);
+    }
+  }
+
+  const usage = {
+    rpm: buildGeminiUsageMap(rpmR.ok ? rpmR.timeSeries : [], ["GenerateRequestsPerMinutePerProjectPerModel"]),
+    tpmPaid: buildGeminiUsageMap(tpmPaidR.ok ? tpmPaidR.timeSeries : [], ["GenerateContentPaidTierInputTokensPerModelPerMinute"]),
+    tpmFree: buildGeminiUsageMap(tpmFreeR.ok ? tpmFreeR.timeSeries : [], ["GenerateContentFreeTierInputTokensPerModelPerMinute"]),
+    rpd: buildGeminiUsageMap(
+      [
+        ...(rpdPaid1R.ok ? rpdPaid1R.timeSeries : []),
+        ...(rpdPaid2R.ok ? rpdPaid2R.timeSeries : []),
+        ...(rpdPaid3R.ok ? rpdPaid3R.timeSeries : []),
+        ...(rpdFreeR.ok ? rpdFreeR.timeSeries : []),
+      ],
+      [
+        "PredictRequestsPerDayPerProjectPerModelPaidTier1",
+        "PredictRequestsPerDayPerProjectPerModelPaidTier2",
+        "PredictRequestsPerDayPerProjectPerModelPaidTier3",
+        "PredictRequestsPerDayPerProjectPerModelFreeTier",
+      ]
+    ),
+  };
+
+  const models = [...modelNames]
+    .map(model => geminiBuildModelRow(model, quota, usage))
+    .filter(model => model.limits.rpm != null || model.limits.tpm != null || model.limits.rpd != null)
+    .sort((a, b) => (b.maxPct || 0) - (a.maxPct || 0) || a.displayName.localeCompare(b.displayName));
+  const selectedModel = models.slice().sort((a, b) => {
+    const aScore = Math.max(a.maxPct || 0, a.usage.rpm_peak_24h || 0, a.usage.tpm_peak_24h || 0);
+    const bScore = Math.max(b.maxPct || 0, b.usage.rpm_peak_24h || 0, b.usage.tpm_peak_24h || 0);
+    if (bScore !== aScore) return bScore - aScore;
+    return a.displayName.localeCompare(b.displayName);
+  })[0] || null;
+
+  return {
+    configured: true,
+    source: auth.source || "none",
+    hasGcloud: !!findGcloudBinary(),
+    project,
+    projectId,
+    auth: {
+      source: auth.source || "none",
+      hasEnvToken: !!String(CFG.GEMINI_ACCESS_TOKEN || "").trim(),
+      hasGcloud: !!findGcloudBinary(),
+    },
+    tier: null,
+    notes: [
+      "Quota values come from Service Usage consumerQuotaMetrics",
+      "Usage peaks come from Monitoring timeSeries over the last 24h",
+      "TPM falls back to the free-tier quota when the paid-tier bucket is missing",
+      "RPD uses a direct Monitoring series when available and otherwise remains zero",
+    ],
+    seriesStatus: {
+      rpm: rpmR.ok ? "ok" : (rpmR.notFound ? "missing" : "error"),
+      tpm: (tpmPaidR.ok || tpmFreeR.ok) ? "ok" : ((tpmPaidR.notFound || tpmFreeR.notFound) ? "missing" : "error"),
+      rpd: (rpdPaid1R.ok || rpdPaid2R.ok || rpdPaid3R.ok || rpdFreeR.ok)
+        ? "ok"
+        : ((rpdPaid1R.notFound || rpdPaid2R.notFound || rpdPaid3R.notFound || rpdFreeR.notFound) ? "missing" : "error"),
+    },
+    models,
+    selectedModel,
+    summary: selectedModel ? {
+      model: selectedModel.displayName,
+      modelId: selectedModel.model,
+      rpm: Math.round(selectedModel.usage.rpm_peak_24h || 0),
+      tpm: Math.round(selectedModel.usage.tpm_peak_24h || 0),
+      rpd: Math.round(selectedModel.usage.rpd_used_24h || 0),
+      windowHours: 24,
+    } : null,
+    usage: selectedModel ? {
+      rpm: Math.round(selectedModel.usage.rpm_peak_24h || 0),
+      tpm: Math.round(selectedModel.usage.tpm_peak_24h || 0),
+      rpd: Math.round(selectedModel.usage.rpd_used_24h || 0),
+    } : { rpm: 0, tpm: 0, rpd: 0 },
+  };
+}
+
 app.get("/api/config", (_req, res) => {
+  const geminiProjectId = getGeminiProjectId();
   res.json({
     ollama: { configured: !!CFG.OLLAMA_API_KEY, local: CFG.OLLAMA_LOCAL_HOST, hasSessionCookie: !!CFG.OLLAMA_SESSION_COOKIE },
     claude: { configured: !!CFG.CLAUDE_SESSION_KEY },
     chatgpt: { configured: !!CFG.CHATGPT_ACCESS_TOKEN, source: CFG.CHATGPT_ACCESS_TOKEN ? "token" : "none" },
     copilot: { configured: !!CFG.GITHUB_TOKEN },
     zai: { configured: !!CFG.ZAI_AUTH_TOKEN },
+    gemini: {
+      configured: !!geminiProjectId,
+      project: geminiProjectId ? { id: geminiProjectId } : null,
+      projectId: geminiProjectId || "",
+      hasAccessToken: !!String(CFG.GEMINI_ACCESS_TOKEN || "").trim(),
+      hasGcloud: !!findGcloudBinary(),
+      source: String(CFG.GEMINI_ACCESS_TOKEN || "").trim() ? "env" : (findGcloudBinary() ? "gcloud" : "none"),
+    },
   });
 });
 
@@ -386,6 +861,14 @@ app.post("/api/chatgpt/refresh-token", requireAdmin, (_req, res) => {
     res.json({ ok: true, expiry, hint: "Token loaded from ~/.codex/auth.json" });
   } catch (e) {
     res.json({ ok: false, error: e.message });
+  }
+});
+
+app.get("/api/gemini/usage", async (_req, res) => {
+  try {
+    res.json(await loadGeminiUsageSnapshot());
+  } catch (e) {
+    res.json({ configured: !!getGeminiProjectId(), error: e.message });
   }
 });
 
@@ -636,6 +1119,7 @@ app.get("/api/platforms", (_req, res) => {
     { id: "claude", name: "Claude", accent: "#e09145" },
     { id: "ollama", name: "Ollama", accent: "#a78bfa" },
     { id: "zai", name: "Z.AI", accent: "#4f8cff" },
+    { id: "gemini", name: "Gemini", accent: "#f59e0b" },
   ]);
 });
 
@@ -666,9 +1150,10 @@ async function _fetchSummary() {
     claude_session: null, claude_weekly: null, claude_session_reset: null, claude_weekly_reset: null, claude_ok: false,
     ollama_session: null, ollama_weekly: null, ollama_session_reset: null, ollama_weekly_reset: null, ollama_ok: false,
     zai_token_pct: null, zai_mcp_pct: null, zai_ok: false,
+    gemini_model: null, gemini_rpm: null, gemini_tpm: null, gemini_rpd: null, gemini_ok: false,
   };
 
-    const [chatgptR, copilotR, claudeR, ollamaR, zaiR] = await Promise.allSettled([
+    const [chatgptR, copilotR, claudeR, ollamaR, zaiR, geminiR] = await Promise.allSettled([
       CFG.CHATGPT_ACCESS_TOKEN ? apiFetch("https://chatgpt.com/backend-api/wham/usage", {
         headers: { "Authorization": `Bearer ${CFG.CHATGPT_ACCESS_TOKEN}` },
       }) : Promise.resolve(null),
@@ -695,6 +1180,7 @@ async function _fetchSummary() {
       CFG.ZAI_AUTH_TOKEN ? apiFetch("https://api.z.ai/api/monitor/usage/quota/limit", {
         headers: zaiHeaders(),
       }) : Promise.resolve(null),
+      loadGeminiUsageSnapshot(),
     ]);
     const chatgpt = chatgptR.status === "fulfilled" ? chatgptR.value : null;
     if (chatgpt?.ok && chatgpt.data?.rate_limit) {
@@ -746,6 +1232,14 @@ async function _fetchSummary() {
       }
       result.zai_ok = true;
     }
+    const gemini = geminiR.status === "fulfilled" ? geminiR.value : null;
+    if (gemini?.configured && gemini?.selectedModel) {
+      result.gemini_model = gemini.selectedModel.displayName || gemini.selectedModel.model || null;
+      result.gemini_rpm = Math.round(gemini.selectedModel.usage?.rpm_peak_24h || 0);
+      result.gemini_tpm = Math.round(gemini.selectedModel.usage?.tpm_peak_24h || 0);
+      result.gemini_rpd = Math.round(gemini.selectedModel.usage?.rpd_used_24h || 0);
+      result.gemini_ok = true;
+    }
   // Normalize nulls → "--" so YASB labels never render "None"
   for (const k of Object.keys(result)) {
     if (result[k] === null) result[k] = "--";
@@ -771,6 +1265,7 @@ for (const [svc, okKey] of [
   ["chatgpt", "chatgpt_ok"], ["copilot", "copilot_ok"],
   ["claude", "claude_ok"],   ["ollama",  "ollama_ok"],
   ["zai",    "zai_ok"],
+  ["gemini", "gemini_ok"],
 ]) {
   app.get(`/api/yasb/${svc}`, async (_req, res) => {
     try {
@@ -806,6 +1301,9 @@ const server = app.listen(PORT, HOST, () => {
   console.log(`  Claude    ${CFG.CLAUDE_SESSION_KEY ? "OK" : "--"}`);
   console.log(`  Ollama    ${CFG.OLLAMA_API_KEY ? "OK" : "--"}${CFG.OLLAMA_SESSION_COOKIE ? " (cookie)" : ""}`);
   console.log(`  Z.AI      ${CFG.ZAI_AUTH_TOKEN ? "OK" : "--"}`);
+  const geminiProject = getGeminiProjectId();
+  const geminiAuthSource = String(CFG.GEMINI_ACCESS_TOKEN || "").trim() ? "env" : (findGcloudBinary() ? "gcloud" : "none");
+  console.log(`  Gemini    ${geminiProject ? "OK" : "--"}${geminiProject ? ` (${geminiProject})` : ""}${geminiProject ? ` [${geminiAuthSource}]` : ""}`);
   console.log(`  Admin     ${CFG.ADMIN_TOKEN ? "OK" : "--"}\n`);
 });
 
