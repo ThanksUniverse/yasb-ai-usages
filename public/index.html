@@ -1386,7 +1386,7 @@ function _vGemini(){
           const rpm=model.rpm||{};const tpm=model.tpm||{};const rpd=model.rpd||{};
           const maxPct=Math.max(rpm.pct||0,tpm.pct||0,rpd.pct||0);
           const smallMeta=[model.category,model.source].filter(Boolean).join(" · ");
-          return`<div class="dr" style="flex-direction:column;align-items:stretch;gap:8px;cursor:pointer;border-color:${active?"var(--gemini)":"var(--b1)"};background:${active?"rgba(138,180,248,.05)":"var(--bg)"}" onclick="setGeminiSelected(${JSON.stringify(model.id)})">
+          return`<div class="dr" style="flex-direction:column;align-items:stretch;gap:8px;cursor:pointer;border-color:${active?"var(--gemini)":"var(--b1)"};background:${active?"rgba(66,133,244,.06)":"var(--bg)"}" onclick="setGeminiSelected('${model.id.replace(/'/g,"\'")}')">
             <div style="display:flex;justify-content:space-between;gap:8px;align-items:flex-start">
               <div style="min-width:0;display:flex;align-items:center;gap:5px">
                 ${isPinned?`<span title="YASB default" style="font-size:9px;color:var(--gemini)">&#9679;</span>`:""}
