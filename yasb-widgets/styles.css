@@ -15,7 +15,7 @@
 .ai-claude { color: #e09145; }
 .ai-ollama { color: #a78bfa; }
 .ai-zai { color: #4f8cff; }
-.ai-gemini { color: #c5221f; }
+.ai-gemini { color: #4285f4; }
 .ai-status { color: #22c55e; }
 
 /* Widget containers */
@@ -49,7 +49,7 @@
 .ai-claude .label { border-bottom-color: #e09145; }
 .ai-ollama .label { border-bottom-color: #a78bfa; }
 .ai-zai .label { border-bottom-color: #4f8cff; }
-.ai-gemini .label { border-bottom-color: #c5221f; }
+.ai-gemini .label { border-bottom-color: #4285f4; }
 
 /* Status — dot only, no padding */
 .ai-status .label {

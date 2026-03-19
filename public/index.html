@@ -10,7 +10,7 @@
   --bg:#060609;--s1:#0b0b10;--s2:#101016;--s3:#16161d;--s4:#1c1c25;
   --b1:rgba(255,255,255,.04);--b2:rgba(255,255,255,.07);--b3:rgba(255,255,255,.12);
   --t1:#ededf2;--t2:#8e8e9a;--t3:#58586a;--t4:#363643;
-  --chatgpt:#10b981;--copilot:#58a6ff;--claude:#e09145;--ollama:#a78bfa;--zai:#4f8cff;--gemini:#c5221f;
+  --chatgpt:#10b981;--copilot:#58a6ff;--claude:#e09145;--ollama:#a78bfa;--zai:#4f8cff;--gemini:#4285f4;
   --red:#ef4444;--green:#22c55e;--amber:#f59e0b;
   --r:14px;--rs:8px;
 }
@@ -652,20 +652,28 @@ function geminiTopModel(models){
 function getOverviewGemini(){
   const d=S.gemini?.data||{};
   if(!d.configured)return null;
-  const models=geminiModelsFromData(d);
-  const top=geminiTopModel(models);
-  const topPct=top?Math.max(top.rpm?.pct||0,top.tpm?.pct||0,top.rpd?.pct||0):0;
-  const rows=[];
-  if(d.project?.id||d.projectId)rows.push({l:"Project",v:d.project?.id||d.projectId,c:"var(--gemini)"});
-  rows.push({l:"Models",v:`${models.length}`,c:"var(--gemini)"});
-  if(top)rows.push({l:"Top model",v:top.name.slice(0,18),c:"var(--gemini)"});
-  if(top?.recentPeak!=null)rows.push({l:"Recent peak",v:fmt(top.recentPeak),c:"var(--gemini)"});
+  const sm=d.selectedModel;
+  if(!sm)return null;
+  const rpdUsed=sm.rpd?.used||0;
+  const rpdLimit=sm.rpd?.limit||0;
+  const rpdPct=rpdLimit>0?Math.round(rpdUsed/rpdLimit*100):0;
+  const rpmUsed=sm.rpm?.used||0;
+  const rpmLimit=sm.rpm?.limit||0;
+  const now=new Date();
+  const nextMidnight=new Date(Date.UTC(now.getUTCFullYear(),now.getUTCMonth(),now.getUTCDate()+1));
+  const rpdReset=fmtDur((nextMidnight-now)/1000);
+  const rpdColor=rpdPct>80?"var(--red)":rpdPct>65?"var(--amber)":"var(--gemini)";
+  const staleLabel=d.stale?`<span style="font-size:8px;color:var(--amber);margin-left:4px">stale</span>`:"";
   return{
-    gauge:gauge(topPct,"var(--gemini)",76,5,"Peak"),
-    rows,
-    bar:{pct:topPct,color:"var(--gemini)"},
+    gauge:gauge(rpdPct,"var(--gemini)",76,5,"RPD"),
+    rows:[
+      {l:"RPD",v:rpdLimit?`${rpdUsed}/${rpdLimit}`:fmt(rpdUsed),c:rpdColor},
+      {l:"RPM",v:rpmLimit?`${rpmUsed}/${rpmLimit}`:fmt(rpmUsed),c:"var(--gemini)"},
+      {l:"Resets",v:rpdReset},
+    ],
+    bar:{pct:rpdPct,color:"var(--gemini)"},
     plan:d.source||"gcloud",
-    extra:d.hasGcloud?`<span style="font-size:9px;color:var(--t3)">gcloud detected</span>`:"",
+    extra:`<span style="font-size:9px;color:var(--t3)">${h(sm.displayName||sm.name||"")}${staleLabel}</span>`,
   };
 }
 
@@ -1336,6 +1344,7 @@ function _vGemini(){
       </div>
       <div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end">
         ${source?`<span class="ch ch-plan">${h(source)}</span>`:""}
+        ${d.stale?`<span class="ch" style="background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.15);color:var(--amber);font-size:8px;padding:2px 7px">cached</span>`:""}
         ${d.hasGcloud?`<span class="ch ch-ok"><span class="dot dot-g pulse"></span>gcloud ready</span>`:`<span class="ch ch-off">No gcloud</span>`}
       </div>
     </div>

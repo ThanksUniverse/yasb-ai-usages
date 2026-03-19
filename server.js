@@ -661,7 +661,7 @@ function geminiBuildModelRow(model, quota, usage) {
   };
 }
 
-async function loadGeminiUsageSnapshot() {
+async function _doGeminiUsageFetch() {
   const projectId = getGeminiProjectId();
   if (!projectId) return { configured: false };
   const projectSource = String(CFG.GEMINI_PROJECT_ID || "").trim() ? "env" : "gcloud";
@@ -892,6 +892,8 @@ app.post("/api/gemini/set-default", (req, res) => {
   savePref("gemini_selected_model", modelId);
   _summaryCache = null;
   _summaryCacheTime = 0;
+  _geminiCache = null;
+  _geminiCacheTime = 0;
   res.json({ ok: true, modelId: modelId || null });
 });
 
@@ -1142,9 +1144,37 @@ app.get("/api/platforms", (_req, res) => {
     { id: "claude", name: "Claude", accent: "#e09145" },
     { id: "ollama", name: "Ollama", accent: "#a78bfa" },
     { id: "zai", name: "Z.AI", accent: "#4f8cff" },
-    { id: "gemini", name: "Gemini", accent: "#f59e0b" },
+    { id: "gemini", name: "Gemini", accent: "#4285f4" },
   ]);
 });
+
+// ── Gemini usage cache (stale-while-revalidate) ────────────────────
+let _geminiCache = null;
+let _geminiCacheTime = 0;
+let _geminiFetch = null;
+const GEMINI_CACHE_TTL = 120_000; // 2 min — Google Cloud APIs are slow
+
+async function loadGeminiUsageSnapshot() {
+  if (_geminiCache && Date.now() - _geminiCacheTime < GEMINI_CACHE_TTL) return _geminiCache;
+  if (_geminiFetch) return _geminiFetch; // deduplicate concurrent requests
+  _geminiFetch = _doGeminiUsageFetch()
+    .then(r => {
+      if (r.configured && !r.error) {
+        _geminiCache = r;
+        _geminiCacheTime = Date.now();
+      } else if (r.error && _geminiCache) {
+        // Return stale data on transient API failures rather than going blank
+        return { ..._geminiCache, stale: true, staleError: r.error };
+      }
+      return r;
+    })
+    .catch(err => {
+      if (_geminiCache) return { ..._geminiCache, stale: true, staleError: err.message };
+      return { configured: !!getGeminiProjectId(), error: err.message };
+    })
+    .finally(() => { _geminiFetch = null; });
+  return _geminiFetch;
+}
 
 // ── YASB summary cache ─────────────────────────────────────────────
 let _summaryCache = null;
@@ -1310,10 +1340,12 @@ for (const [svc, okKey] of [
   });
 }
 
-// Force-refresh — clears cache then returns fresh data
+// Force-refresh — clears all caches then returns fresh data
 app.get("/api/yasb/refresh", async (_req, res) => {
   _summaryCache = null;
   _summaryCacheTime = 0;
+  _geminiCache = null;
+  _geminiCacheTime = 0;
   try { res.json(await computeSummary()); } catch (e) { res.json({ error: e.message }); }
 });
 
@@ -1351,8 +1383,33 @@ server.on("error", (err) => {
   process.exit(1);
 });
 
-function shutdown() {
-  server.close(() => process.exit(0));
+// ── Graceful shutdown ──────────────────────────────────────────────
+function shutdown(signal) {
+  console.log(`\n  [${signal}] Shutting down gracefully...`);
+  server.close(() => {
+    console.log("  HTTP server closed. Bye.");
+    process.exit(0);
+  });
+  // Force-kill after 5 s to prevent zombie processes
+  setTimeout(() => {
+    console.error("  Forced exit after 5s timeout.");
+    process.exit(1);
+  }, 5000).unref();
 }
-process.on("SIGINT", shutdown);
-process.on("SIGTERM", shutdown);
+process.on("SIGINT",  () => shutdown("SIGINT"));
+process.on("SIGTERM", () => shutdown("SIGTERM"));
+
+// ── 24/7 resilience ────────────────────────────────────────────────
+process.on("uncaughtException", (err) => {
+  console.error(`[fatal] Uncaught exception: ${err.message}`);
+  // Don't exit — keep serving other requests
+});
+process.on("unhandledRejection", (reason) => {
+  console.error(`[warn] Unhandled rejection: ${reason?.message || reason}`);
+});
+
+// Refresh gcloud project detection every hour so a changed `gcloud config set project`
+// is picked up without restarting the server
+setInterval(() => {
+  _detectedGeminiProjectId = undefined;
+}, 3_600_000).unref();
