@@ -12,7 +12,7 @@
     type: "yasb.grouper.GrouperWidget"
     options:
       class_name: "ai-usage-group"
-      widgets: ["ai_chatgpt", "ai_copilot", "ai_claude", "ai_ollama", "ai_zai", "ai_status"]
+      widgets: ["ai_chatgpt", "ai_copilot", "ai_claude", "ai_ollama", "ai_zai", "ai_gemini", "ai_status"]
 
   ai_chatgpt:
     type: "yasb.custom.CustomWidget"
@@ -109,6 +109,25 @@
         on_middle: "do_nothing"
         on_right: "exec curl.exe -sf http://localhost:3456/api/yasb/refresh"
 
+
+  ai_gemini:
+    type: "yasb.custom.CustomWidget"
+    options:
+      label: "<span>\uf1a0</span> {data[gemini_rpd_pct]}%"
+      label_alt: "<span>\uf1a0</span> Gem {data[gemini_rpd_used]}/{data[gemini_rpd_limit]} ({data[gemini_rpd_reset]})"
+      class_name: "ai-gemini"
+      label_placeholder: "\uf1a0 --"
+      tooltip: true
+      tooltip_label: "Gemini - {data[gemini_model]}\nRPM: {data[gemini_rpm_used]}/{data[gemini_rpm_limit]}\nTPM: {data[gemini_tpm_used]}/{data[gemini_tpm_limit]}\nRPD: {data[gemini_rpd_used]}/{data[gemini_rpd_limit]} ({data[gemini_rpd_pct]}%)\nResets in: {data[gemini_rpd_reset]}"
+      exec_options:
+        run_cmd: "curl.exe -sf --max-time 5 http://localhost:3456/api/yasb/gemini"
+        run_interval: 120000
+        return_format: "json"
+        hide_empty: true
+      callbacks:
+        on_left: "toggle_label"
+        on_middle: "do_nothing"
+        on_right: "exec curl.exe -sf http://localhost:3456/api/yasb/refresh"
 
   ai_status:
     type: "yasb.custom.CustomWidget"

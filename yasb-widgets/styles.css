@@ -15,6 +15,7 @@
 .ai-claude { color: #e09145; }
 .ai-ollama { color: #a78bfa; }
 .ai-zai { color: #4f8cff; }
+.ai-gemini { color: #c5221f; }
 .ai-status { color: #22c55e; }
 
 /* Widget containers */
@@ -23,6 +24,7 @@
 .ai-claude .widget-container,
 .ai-ollama .widget-container,
 .ai-zai .widget-container,
+.ai-gemini .widget-container,
 .ai-status .widget-container {
   padding: 0 1px;
 }
@@ -32,7 +34,8 @@
 .ai-copilot .label,
 .ai-claude .label,
 .ai-ollama .label,
-.ai-zai .label {
+.ai-zai .label,
+.ai-gemini .label {
   font-family: "JetBrainsMono Nerd Font", "JetBrains Mono", monospace;
   font-size: 11px;
   font-weight: 600;
@@ -46,6 +49,7 @@
 .ai-claude .label { border-bottom-color: #e09145; }
 .ai-ollama .label { border-bottom-color: #a78bfa; }
 .ai-zai .label { border-bottom-color: #4f8cff; }
+.ai-gemini .label { border-bottom-color: #c5221f; }
 
 /* Status — dot only, no padding */
 .ai-status .label {
@@ -70,7 +74,8 @@
 .ai-copilot .widget.warning,
 .ai-claude .widget.warning,
 .ai-ollama .widget.warning,
-.ai-zai .widget.warning {
+.ai-zai .widget.warning,
+.ai-gemini .widget.warning {
   color: #f59e0b;
 }
 
@@ -79,7 +84,8 @@
 .ai-copilot .widget.critical,
 .ai-claude .widget.critical,
 .ai-ollama .widget.critical,
-.ai-zai .widget.critical {
+.ai-zai .widget.critical,
+.ai-gemini .widget.critical {
   color: #ef4444;
   animation: pulse 2s ease-in-out infinite;
 }

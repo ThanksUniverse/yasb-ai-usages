@@ -164,6 +164,18 @@ function loadEnv() {
 }
 const envLoad = loadEnv();
 if (!CFG.ADMIN_TOKEN) CFG.ADMIN_TOKEN = crypto.randomBytes(24).toString("hex");
+
+// ── Gemini prefs (lightweight key-value store) ─────────────────
+const PREFS_PATH = path.join(__dirname, "data", "prefs.json");
+let _prefs = {};
+function loadPrefs() {
+  try { if (fs.existsSync(PREFS_PATH)) _prefs = JSON.parse(fs.readFileSync(PREFS_PATH, "utf-8")); } catch {}
+}
+function savePref(k, v) {
+  _prefs[k] = v;
+  try { fs.mkdirSync(path.dirname(PREFS_PATH), { recursive: true }); fs.writeFileSync(PREFS_PATH, JSON.stringify(_prefs, null, 2)); } catch {}
+}
+loadPrefs();
 if (CONFIG_LOAD_WARNINGS.length) {
   for (const warning of CONFIG_LOAD_WARNINGS) {
     console.warn(`[config] Preserving stored value for ${warning}`);
@@ -756,17 +768,20 @@ async function loadGeminiUsageSnapshot() {
     .map(model => geminiBuildModelRow(model, quota, usage))
     .filter(model => model.limits.rpm != null || model.limits.tpm != null || model.limits.rpd != null)
     .sort((a, b) => (b.maxPct || 0) - (a.maxPct || 0) || a.displayName.localeCompare(b.displayName));
-  const selectedModel = models.slice().sort((a, b) => {
-    const aScore = Math.max(a.maxPct || 0, a.usage.rpm_peak_24h || 0, a.usage.tpm_peak_24h || 0);
-    const bScore = Math.max(b.maxPct || 0, b.usage.rpm_peak_24h || 0, b.usage.tpm_peak_24h || 0);
-    if (bScore !== aScore) return bScore - aScore;
-    return a.displayName.localeCompare(b.displayName);
-  })[0] || null;
+  const preferredModelId = String(_prefs.gemini_selected_model || "").trim();
+  const selectedModel = (preferredModelId && models.find(m => m.model === preferredModelId))
+    || models.slice().sort((a, b) => {
+      const aScore = Math.max(a.maxPct || 0, a.usage.rpm_peak_24h || 0, a.usage.tpm_peak_24h || 0);
+      const bScore = Math.max(b.maxPct || 0, b.usage.rpm_peak_24h || 0, b.usage.tpm_peak_24h || 0);
+      if (bScore !== aScore) return bScore - aScore;
+      return a.displayName.localeCompare(b.displayName);
+    })[0] || null;
 
   return {
     configured: true,
     source: auth.source || "none",
     hasGcloud: !!findGcloudBinary(),
+    preferredModelId: String(_prefs.gemini_selected_model || "").trim() || null,
     project,
     projectId,
     auth: {
@@ -870,6 +885,14 @@ app.get("/api/gemini/usage", async (_req, res) => {
   } catch (e) {
     res.json({ configured: !!getGeminiProjectId(), error: e.message });
   }
+});
+
+app.post("/api/gemini/set-default", (req, res) => {
+  const modelId = String(req.body?.modelId || "").trim();
+  savePref("gemini_selected_model", modelId);
+  _summaryCache = null;
+  _summaryCacheTime = 0;
+  res.json({ ok: true, modelId: modelId || null });
 });
 
 app.post("/api/claude/validate-key", requireAdmin, async (req, res) => {
@@ -1150,7 +1173,11 @@ async function _fetchSummary() {
     claude_session: null, claude_weekly: null, claude_session_reset: null, claude_weekly_reset: null, claude_ok: false,
     ollama_session: null, ollama_weekly: null, ollama_session_reset: null, ollama_weekly_reset: null, ollama_ok: false,
     zai_token_pct: null, zai_mcp_pct: null, zai_ok: false,
-    gemini_model: null, gemini_rpm: null, gemini_tpm: null, gemini_rpd: null, gemini_ok: false,
+    gemini_model: null,
+    gemini_rpm_used: null, gemini_rpm_limit: null,
+    gemini_tpm_used: null, gemini_tpm_limit: null,
+    gemini_rpd_used: null, gemini_rpd_limit: null, gemini_rpd_pct: null, gemini_rpd_reset: null,
+    gemini_ok: false,
   };
 
     const [chatgptR, copilotR, claudeR, ollamaR, zaiR, geminiR] = await Promise.allSettled([
@@ -1234,10 +1261,18 @@ async function _fetchSummary() {
     }
     const gemini = geminiR.status === "fulfilled" ? geminiR.value : null;
     if (gemini?.configured && gemini?.selectedModel) {
-      result.gemini_model = gemini.selectedModel.displayName || gemini.selectedModel.model || null;
-      result.gemini_rpm = Math.round(gemini.selectedModel.usage?.rpm_peak_24h || 0);
-      result.gemini_tpm = Math.round(gemini.selectedModel.usage?.tpm_peak_24h || 0);
-      result.gemini_rpd = Math.round(gemini.selectedModel.usage?.rpd_used_24h || 0);
+      const sm = gemini.selectedModel;
+      result.gemini_model = sm.displayName || sm.model || null;
+      result.gemini_rpm_used = Math.round(sm.rpm?.used || 0);
+      result.gemini_rpm_limit = sm.rpm?.limit ?? null;
+      result.gemini_tpm_used = Math.round(sm.tpm?.used || 0);
+      result.gemini_tpm_limit = sm.tpm?.limit ?? null;
+      result.gemini_rpd_used = Math.round(sm.rpd?.used || 0);
+      result.gemini_rpd_limit = sm.rpd?.limit ?? null;
+      result.gemini_rpd_pct = (sm.rpd?.limit > 0) ? Math.round((sm.rpd.used / sm.rpd.limit) * 100) : 0;
+      const now = new Date();
+      const nextMidnight = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1));
+      result.gemini_rpd_reset = formatSeconds((nextMidnight - now) / 1000);
       result.gemini_ok = true;
     }
   // Normalize nulls → "--" so YASB labels never render "None"

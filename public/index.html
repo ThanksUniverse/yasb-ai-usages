@@ -10,7 +10,7 @@
   --bg:#060609;--s1:#0b0b10;--s2:#101016;--s3:#16161d;--s4:#1c1c25;
   --b1:rgba(255,255,255,.04);--b2:rgba(255,255,255,.07);--b3:rgba(255,255,255,.12);
   --t1:#ededf2;--t2:#8e8e9a;--t3:#58586a;--t4:#363643;
-  --chatgpt:#10b981;--copilot:#58a6ff;--claude:#e09145;--ollama:#a78bfa;--zai:#4f8cff;--gemini:#8ab4f8;
+  --chatgpt:#10b981;--copilot:#58a6ff;--claude:#e09145;--ollama:#a78bfa;--zai:#4f8cff;--gemini:#c5221f;
   --red:#ef4444;--green:#22c55e;--amber:#f59e0b;
   --r:14px;--rs:8px;
 }
@@ -195,6 +195,10 @@ async function loadAll(){
   ids.forEach(id=>{
     api(serviceEndpoints[id]).then(data=>{
       S[id]={...(S[id]||{}),data,loading:false,lastRefresh:new Date()};
+      // Seed Gemini selected model from server preference
+      if(id==="gemini"&&data?.preferredModelId&&!S.gemini.selectedId){
+        S.gemini.selectedId=data.preferredModelId;
+      }
       if(S.initialLoad){
         const allDone=ids.every(i=>!S[i].loading);
         if(allDone)S.initialLoad=false;
@@ -1299,6 +1303,7 @@ function renderZAIToolUsage(data){
 function setGeminiSelected(id){
   if(!S.gemini)S.gemini={};
   S.gemini.selectedId=id;
+  fetch("/api/gemini/set-default",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({modelId:id})}).catch(()=>{});
   render();
 }
 
@@ -1368,14 +1373,18 @@ function _vGemini(){
       ${models.length?`<div style="display:flex;flex-direction:column;gap:8px">
         ${models.map((model,index)=>{
           const active=selected?.id===model.id;
+          const isPinned=model.id===(S.gemini?.data?.preferredModelId||null);
           const rpm=model.rpm||{};const tpm=model.tpm||{};const rpd=model.rpd||{};
           const maxPct=Math.max(rpm.pct||0,tpm.pct||0,rpd.pct||0);
           const smallMeta=[model.category,model.source].filter(Boolean).join(" · ");
           return`<div class="dr" style="flex-direction:column;align-items:stretch;gap:8px;cursor:pointer;border-color:${active?"var(--gemini)":"var(--b1)"};background:${active?"rgba(138,180,248,.05)":"var(--bg)"}" onclick="setGeminiSelected(${JSON.stringify(model.id)})">
             <div style="display:flex;justify-content:space-between;gap:8px;align-items:flex-start">
-              <div style="min-width:0">
-                <div style="font-size:11px;font-weight:700">${h(model.name)}</div>
-                ${smallMeta?`<div style="font-size:9px;color:var(--t3);margin-top:2px">${h(smallMeta)}</div>`:""}
+              <div style="min-width:0;display:flex;align-items:center;gap:5px">
+                ${isPinned?`<span title="YASB default" style="font-size:9px;color:var(--gemini)">&#9679;</span>`:""}
+                <div>
+                  <div style="font-size:11px;font-weight:700">${h(model.name)}</div>
+                  ${smallMeta?`<div style="font-size:9px;color:var(--t3);margin-top:2px">${h(smallMeta)}</div>`:""}
+                </div>
               </div>
               <div style="display:flex;gap:4px;flex-wrap:wrap;justify-content:flex-end">
                 ${rpm.limit!=null?`<span class="ch ch-plan" style="font-size:8px;padding:2px 6px">RPM ${fmt(rpm.limit)}</span>`:""}
@@ -1385,7 +1394,7 @@ function _vGemini(){
             </div>
             <div style="font-size:9px;color:var(--t4);display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap">
               <span>${maxPct?`${Math.round(maxPct)}% peak utilization`:"No utilization data"}</span>
-              <span>${selected?.id===model.id?"Selected":""}</span>
+              <span>${isPinned?`&#9679; YASB widget default`:active?"Selected":""}</span>
             </div>
           </div>`;
         }).join("")}
