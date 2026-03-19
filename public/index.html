@@ -1600,7 +1600,7 @@ function vSettings(){
         ${S.config?.gemini?.source?`<span style="color:var(--t2)">Source: ${h(S.config.gemini.source)}</span><br>`:""}
         ${S.config?.gemini?.hasGcloud?`<span style="color:var(--green)">gcloud detected on this machine</span><br>`:""}
         <strong>Steps:</strong> Run <code class="mono">gcloud auth login</code>, then <code class="mono">gcloud config set project &lt;project-id&gt;</code> or paste the project ID above.<br>
-        <strong>Fallback:</strong> You can paste a temporary Google access token above if you don’t want to rely on local <code class="mono">gcloud</code>.<br>
+        <strong>Fallback:</strong> You can paste a temporary Google access token above — but tokens expire in ~1 hour. <span style="color:var(--amber)">Leave blank to use gcloud automatically (recommended).</span><br>
         <strong>Note:</strong> Gemini rate limits are read from Google Cloud quota and Monitoring APIs.
       </p>
     </div>

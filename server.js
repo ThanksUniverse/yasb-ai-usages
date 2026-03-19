@@ -409,9 +409,13 @@ function getGeminiProjectId() {
 function getGeminiAccessToken() {
   const envToken = String(CFG.GEMINI_ACCESS_TOKEN || "").trim();
   if (envToken) return { token: envToken, source: "env" };
+  return getGcloudAccessToken();
+}
+
+function getGcloudAccessToken(forceRefresh = false) {
   const bin = findGcloudBinary();
   const now = Date.now();
-  if (_gcloudAccessTokenCache.token && now - _gcloudAccessTokenCache.at < 45 * 60 * 1000) {
+  if (!forceRefresh && _gcloudAccessTokenCache.token && now - _gcloudAccessTokenCache.at < 45 * 60 * 1000) {
     return { token: _gcloudAccessTokenCache.token, source: "gcloud" };
   }
   if (bin) {
@@ -665,7 +669,7 @@ async function _doGeminiUsageFetch() {
   const projectId = getGeminiProjectId();
   if (!projectId) return { configured: false };
   const projectSource = String(CFG.GEMINI_PROJECT_ID || "").trim() ? "env" : "gcloud";
-  const auth = getGeminiAccessToken();
+  let auth = getGeminiAccessToken();
   if (!auth.token) {
     return {
       configured: true,
@@ -683,8 +687,27 @@ async function _doGeminiUsageFetch() {
     };
   }
 
-  const projectR = await geminiFetchProject(projectId, auth.token);
+  let projectR = await geminiFetchProject(projectId, auth.token);
+
+  // If the env token returned 401/403, automatically retry with a fresh gcloud token
+  if (!projectR.ok && (projectR.status === 401 || projectR.status === 403) && auth.source === "env") {
+    const gcloudAuth = getGcloudAccessToken();
+    if (gcloudAuth.token) {
+      auth = { ...gcloudAuth, fallback: true };
+      projectR = await geminiFetchProject(projectId, auth.token);
+    }
+  }
+  // If gcloud token also got 401, force-refresh (re-run gcloud auth print-access-token)
+  if (!projectR.ok && (projectR.status === 401 || projectR.status === 403) && auth.source === "gcloud") {
+    const freshAuth = getGcloudAccessToken(true);
+    if (freshAuth.token && freshAuth.token !== auth.token) {
+      auth = freshAuth;
+      projectR = await geminiFetchProject(projectId, auth.token);
+    }
+  }
+
   if (!projectR.ok || !projectR.project?.number) {
+    const isExpired = projectR.status === 401 || projectR.status === 403;
     return {
       configured: true,
       source: auth.source || "none",
@@ -697,7 +720,9 @@ async function _doGeminiUsageFetch() {
       models: [],
       summary: null,
       error: projectR.error || "Unable to resolve Gemini project metadata",
-      hint: "Grant the authenticated Google account project viewer access, or verify GEMINI_PROJECT_ID.",
+      hint: isExpired
+        ? "Access token is expired. Clear the Access Token field in Settings and let gcloud manage tokens automatically."
+        : "Grant the authenticated Google account project viewer access, or verify GEMINI_PROJECT_ID.",
     };
   }
 
