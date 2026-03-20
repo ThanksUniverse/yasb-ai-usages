@@ -5,6 +5,7 @@ const os = require("os");
 const crypto = require("crypto");
 const { spawnSync } = require("child_process");
 const { Ollama } = require("ollama");
+const yaml = require("js-yaml");
 
 // ── Encryption helpers (AES-256-GCM) ─────────────────────────────
 const ENC_KEY_PATH = path.join(__dirname, "data", ".enc.key");
@@ -1195,7 +1196,7 @@ async function loadGeminiUsageSnapshot() {
 let _summaryCache = null;
 let _summaryCacheTime = 0;
 let _summaryFetch = null;
-const SUMMARY_CACHE_TTL = 90_000; // 90 s — widgets poll every 120 s
+const SUMMARY_CACHE_TTL = 150_000; // 150 s — above YASB 120 s poll interval for reliable cache hits
 let _healthCache = null;
 let _healthCacheTime = 0;
 const HEALTH_CACHE_TTL = 5_000; // match YASB poll interval so all monitors see identical snapshot
@@ -1333,8 +1334,20 @@ async function _fetchSummary() {
 }
 
 async function computeSummary() {
+  // Fresh cache — serve immediately
   if (_summaryCache && Date.now() - _summaryCacheTime < SUMMARY_CACHE_TTL) return _summaryCache;
-  if (_summaryFetch) return _summaryFetch; // deduplicate concurrent requests
+
+  // Stale cache exists — serve stale instantly, refresh in background
+  // (prevents curl --max-time 5 timeouts when external APIs are slow)
+  if (_summaryCache) {
+    if (!_summaryFetch) {
+      _summaryFetch = _fetchSummary().finally(() => { _summaryFetch = null; });
+    }
+    return _summaryCache;
+  }
+
+  // No cache (cold start) — must wait for first fetch
+  if (_summaryFetch) return _summaryFetch;
   _summaryFetch = _fetchSummary().finally(() => { _summaryFetch = null; });
   return _summaryFetch;
 }
@@ -1358,13 +1371,345 @@ for (const [svc, okKey] of [
   });
 }
 
-// Force-refresh — clears all caches then returns fresh data
+// Force-refresh — mark stale (keep data for concurrent polls), wait for fresh
 app.get("/api/yasb/refresh", async (_req, res) => {
-  _summaryCache = null;
   _summaryCacheTime = 0;
-  _geminiCache = null;
   _geminiCacheTime = 0;
-  try { res.json(await computeSummary()); } catch (e) { res.json({ error: e.message }); }
+  if (!_summaryFetch) {
+    _summaryFetch = _fetchSummary().finally(() => { _summaryFetch = null; });
+  }
+  try { res.json(await _summaryFetch); } catch (e) { res.json({ error: e.message }); }
+});
+
+// ━━━ YASB WIDGET INSTALLER ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+function findYasbConfig() {
+  const home = os.homedir();
+  const candidates = [
+    path.join(home, ".config", "yasb", "config.yaml"),
+    path.join(home, ".config", "yasb", "config.yml"),
+    path.join(home, "AppData", "Roaming", "yasb", "config.yaml"),
+    path.join(home, "AppData", "Local", "yasb", "config.yaml"),
+  ];
+  for (const p of candidates) {
+    if (fs.existsSync(p)) return p;
+  }
+  return null;
+}
+
+function findYasbStyles(configPath) {
+  if (!configPath) return null;
+  const dir = path.dirname(configPath);
+  for (const name of ["styles.css", "styles.yaml", "styles.yml"]) {
+    const p = path.join(dir, name);
+    if (fs.existsSync(p)) return p;
+  }
+  return null;
+}
+
+const AI_WIDGET_MARKER = "# ━━ AI Usage Dashboard widgets";
+const AI_STYLE_MARKER = "/* ━━ AI Usage Dashboard styles";
+
+function detectInstalledWidgets(configText) {
+  const widgetIds = ["ai_usage_group", "ai_chatgpt", "ai_copilot", "ai_claude", "ai_ollama", "ai_zai", "ai_gemini", "ai_status"];
+  const found = [];
+  for (const id of widgetIds) {
+    if (new RegExp(`^\\s*${id}\\s*:`, "m").test(configText)) found.push(id);
+  }
+  return found;
+}
+
+function detectInstalledStyles(stylesText) {
+  return stylesText.includes(".ai-chatgpt") || stylesText.includes(".ai-usage-group") || stylesText.includes(AI_STYLE_MARKER);
+}
+
+function generateWidgetConfig(services, layout) {
+  const PORT_NUM = isValidPort(CFG.PORT) ? Number.parseInt(CFG.PORT, 10) : 3456;
+  const BASE = `http://localhost:${PORT_NUM}`;
+
+  const widgetDefs = {};
+
+  if (layout === "grouped") {
+    const groupWidgets = services.map(s => `ai_${s}`);
+    groupWidgets.push("ai_status");
+    widgetDefs.ai_usage_group = {
+      type: "yasb.grouper.GrouperWidget",
+      options: {
+        class_name: "ai-usage-group",
+        widgets: groupWidgets,
+      },
+    };
+  }
+
+  const serviceConfigs = {
+    chatgpt: {
+      label: '<span>\udb80\udcab</span> {data[chatgpt_session]}%',
+      label_alt: '<span>\udb80\udcab</span> GPT {data[chatgpt_session]}% ({data[chatgpt_session_reset]}) | {data[chatgpt_weekly]}% w ({data[chatgpt_weekly_reset]})',
+      class_name: "ai-chatgpt",
+      label_placeholder: '\udb80\udcab --',
+      tooltip_label: 'ChatGPT Plus\nSession: {data[chatgpt_session]}% (Resets in {data[chatgpt_session_reset]})\nWeekly: {data[chatgpt_weekly]}% (Resets in {data[chatgpt_weekly_reset]})',
+    },
+    copilot: {
+      label: '<span>\uf113</span> {data[copilot_pct]}%',
+      label_alt: '<span>\uf113</span> Cop {data[copilot_used]}/{data[copilot_total]} ({data[copilot_reset]})',
+      class_name: "ai-copilot",
+      label_placeholder: '\uf113 --',
+      tooltip_label: 'GitHub Copilot Pro\nUsed: {data[copilot_used]}/{data[copilot_total]} premium\nPercent: {data[copilot_pct]}%\nResets in: {data[copilot_reset]}',
+    },
+    claude: {
+      label: '<span>\udb81\ude2e</span> {data[claude_session]}%',
+      label_alt: '<span>\udb81\ude2e</span> Cla {data[claude_session]}% ({data[claude_session_reset]}) | {data[claude_weekly]}%w ({data[claude_weekly_reset]})',
+      class_name: "ai-claude",
+      label_placeholder: '\udb81\ude2e --',
+      tooltip_label: 'Claude Pro\nSession: {data[claude_session]}% (Resets in {data[claude_session_reset]})\nWeekly: {data[claude_weekly]}% (Resets in {data[claude_weekly_reset]})',
+    },
+    ollama: {
+      label: '<span>\uf201</span> {data[ollama_session]}%',
+      label_alt: '<span>\uf201</span> Oll {data[ollama_session]}% ({data[ollama_session_reset]}) | {data[ollama_weekly]}%w ({data[ollama_weekly_reset]})',
+      class_name: "ai-ollama",
+      label_placeholder: '\uf201 --',
+      tooltip_label: 'Ollama\nSession: {data[ollama_session]}% (Resets in {data[ollama_session_reset]})\nWeekly: {data[ollama_weekly]}% (Resets in {data[ollama_weekly_reset]})',
+    },
+    zai: {
+      label: '<span>\udb80\udea8</span> {data[zai_token_pct]}%',
+      label_alt: '<span>\udb80\udea8</span> Z.AI Tk {data[zai_token_pct]}% | MCP {data[zai_mcp_pct]}%',
+      class_name: "ai-zai",
+      label_placeholder: '\udb80\udea8 --',
+      tooltip_label: 'Z.AI GLM Coding\nToken (5h): {data[zai_token_pct]}%\nMCP (Monthly): {data[zai_mcp_pct]}%',
+    },
+    gemini: {
+      label: '<span>\uf1a0</span> {data[gemini_rpd_pct]}%',
+      label_alt: '<span>\uf1a0</span> Gem {data[gemini_rpd_used]}/{data[gemini_rpd_limit]} ({data[gemini_rpd_reset]})',
+      class_name: "ai-gemini",
+      label_placeholder: '\uf1a0 --',
+      tooltip_label: 'Gemini - {data[gemini_model]}\nRPM: {data[gemini_rpm_used]}/{data[gemini_rpm_limit]}\nTPM: {data[gemini_tpm_used]}/{data[gemini_tpm_limit]}\nRPD: {data[gemini_rpd_used]}/{data[gemini_rpd_limit]} ({data[gemini_rpd_pct]}%)\nResets in: {data[gemini_rpd_reset]}',
+    },
+  };
+
+  for (const svc of services) {
+    const cfg = serviceConfigs[svc];
+    if (!cfg) continue;
+    widgetDefs[`ai_${svc}`] = {
+      type: "yasb.custom.CustomWidget",
+      options: {
+        label: cfg.label,
+        label_alt: cfg.label_alt,
+        class_name: cfg.class_name,
+        label_placeholder: cfg.label_placeholder,
+        tooltip: true,
+        tooltip_label: cfg.tooltip_label,
+        exec_options: {
+          run_cmd: `curl.exe -sf --max-time 5 ${BASE}/api/yasb/${svc}`,
+          run_interval: 120000,
+          return_format: "json",
+          hide_empty: true,
+        },
+        callbacks: {
+          on_left: "toggle_label",
+          on_middle: "do_nothing",
+          on_right: `exec curl.exe -sf ${BASE}/api/yasb/refresh`,
+        },
+      },
+    };
+  }
+
+  widgetDefs.ai_status = {
+    type: "yasb.custom.CustomWidget",
+    options: {
+      label: "{data[indicator]} {data[next_label]}",
+      label_alt: "{data[indicator]} {data[next_label]}",
+      class_name: "ai-status",
+      label_placeholder: "\uf10c",
+      tooltip: true,
+      tooltip_label: "AI Usage Dashboard\nStatus: Online\nNext refresh in: {data[next_s]}s\nLeft-click: open dashboard\nRight-click: refresh data",
+      exec_options: {
+        run_cmd: `curl.exe -sf --max-time 2 ${BASE}/api/health`,
+        run_interval: 5000,
+        return_format: "json",
+        hide_empty: false,
+      },
+      callbacks: {
+        on_left: `exec cmd /c start ${BASE}`,
+        on_middle: "do_nothing",
+        on_right: `exec curl.exe -sf ${BASE}/api/yasb/refresh`,
+      },
+    },
+  };
+
+  return widgetDefs;
+}
+
+function generateWidgetYaml(services, layout) {
+  const defs = generateWidgetConfig(services, layout);
+  const lines = [`\n${AI_WIDGET_MARKER} ━━━━━━━━━━━━━━━━━`];
+  for (const [name, def] of Object.entries(defs)) {
+    const dumped = yaml.dump({ [name]: def }, { indent: 2, lineWidth: -1, quotingType: '"', forceQuotes: false });
+    lines.push("");
+    lines.push("  " + dumped.split("\n").join("\n  ").trimEnd());
+  }
+  return lines.join("\n") + "\n";
+}
+
+function generateStylesCss(services) {
+  const colors = {
+    chatgpt: "#10b981", copilot: "#58a6ff", claude: "#e09145",
+    ollama: "#a78bfa", zai: "#4f8cff", gemini: "#4285f4",
+  };
+  let css = `\n${AI_STYLE_MARKER} ━━━━━━━━━━━━━━━━━ */\n`;
+  css += `.ai-usage-group {\n  margin: 0 4px;\n  padding: 0 6px;\n  border-radius: 4px;\n  background: rgba(255, 255, 255, 0.03);\n}\n\n`;
+
+  for (const svc of services) {
+    css += `.ai-${svc} { color: ${colors[svc]}; }\n`;
+  }
+  css += `.ai-status { color: #22c55e; }\n\n`;
+
+  const selectors = services.map(s => `.ai-${s} .widget-container`).join(",\n");
+  css += `${selectors},\n.ai-status .widget-container {\n  padding: 0 1px;\n}\n\n`;
+
+  const labelSelectors = services.map(s => `.ai-${s} .label`).join(",\n");
+  css += `${labelSelectors} {\n  font-family: "JetBrainsMono Nerd Font", "JetBrains Mono", monospace;\n  font-size: 11px;\n  font-weight: 600;\n  padding: 0 2px 1px 2px;\n  border-bottom: 2px solid transparent;\n  color: rgba(255, 255, 255, 0.88);\n}\n\n`;
+
+  for (const svc of services) {
+    css += `.ai-${svc} .label { border-bottom-color: ${colors[svc]}; }\n`;
+  }
+
+  css += `\n.ai-status .label {\n  font-family: "JetBrainsMono Nerd Font", "JetBrains Mono", monospace;\n  font-size: 10px;\n  color: #22c55e;\n  padding: 0 1px;\n}\n\n`;
+
+  const warnSelectors = services.map(s => `.ai-${s} .widget.warning`).join(",\n");
+  css += `${warnSelectors} {\n  color: #f59e0b;\n}\n\n`;
+
+  const critSelectors = services.map(s => `.ai-${s} .widget.critical`).join(",\n");
+  css += `${critSelectors} {\n  color: #ef4444;\n  animation: ai-pulse 2s ease-in-out infinite;\n}\n\n`;
+  css += `@keyframes ai-pulse {\n  0%, 100% { opacity: 1; }\n  50% { opacity: 0.6; }\n}\n`;
+
+  return css;
+}
+
+app.get("/api/yasb/detect", (req, res) => {
+  const configPath = findYasbConfig();
+  if (!configPath) {
+    return res.json({ found: false, configPath: null, stylesPath: null, widgetsInstalled: false, installedWidgets: [], stylesInstalled: false });
+  }
+  const stylesPath = findYasbStyles(configPath);
+  let installedWidgets = [];
+  let stylesInstalled = false;
+  try {
+    installedWidgets = detectInstalledWidgets(fs.readFileSync(configPath, "utf-8"));
+  } catch {}
+  try {
+    if (stylesPath) stylesInstalled = detectInstalledStyles(fs.readFileSync(stylesPath, "utf-8"));
+  } catch {}
+  res.json({
+    found: true,
+    configPath,
+    stylesPath,
+    widgetsInstalled: installedWidgets.length > 0,
+    installedWidgets,
+    stylesInstalled,
+  });
+});
+
+app.post("/api/yasb/install", requireAdmin, express.json(), (req, res) => {
+  const { services = [], layout = "grouped", configPath: customPath } = req.body || {};
+  const validServices = ["chatgpt", "copilot", "claude", "ollama", "zai", "gemini"];
+  const selected = services.filter(s => validServices.includes(s));
+  if (selected.length === 0) {
+    return res.status(400).json({ ok: false, error: "No valid services selected" });
+  }
+
+  const configPath = customPath || findYasbConfig();
+  if (!configPath || !fs.existsSync(configPath)) {
+    return res.status(400).json({ ok: false, error: "YASB config not found. Provide configPath or install YASB first." });
+  }
+  const stylesPath = findYasbStyles(configPath);
+
+  try {
+    // Read existing config
+    let configText = fs.readFileSync(configPath, "utf-8");
+    const existing = detectInstalledWidgets(configText);
+
+    // Remove old AI widget block if present (between marker and next top-level key or EOF)
+    if (configText.includes(AI_WIDGET_MARKER)) {
+      configText = configText.replace(new RegExp(`\\n?${AI_WIDGET_MARKER.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}[\\s\\S]*$`), "");
+    }
+    // Also remove individual widget definitions that aren't under a marker
+    for (const w of existing) {
+      const re = new RegExp(`(\\n  ${w}:\\n(?:    .*\\n)*?)(?=\\n  \\S|$)`, "g");
+      configText = configText.replace(re, "");
+    }
+
+    // Generate and append widget config
+    const widgetYaml = generateWidgetYaml(selected, layout);
+    configText = configText.trimEnd() + "\n" + widgetYaml;
+
+    // Ensure the group widget name is mentioned in a comment for the user
+    fs.writeFileSync(configPath, configText, "utf-8");
+
+    // Install styles
+    let stylesResult = "skipped";
+    if (stylesPath) {
+      let stylesText = fs.readFileSync(stylesPath, "utf-8");
+      // Remove old AI styles block if present
+      if (stylesText.includes(AI_STYLE_MARKER)) {
+        stylesText = stylesText.replace(new RegExp(`\\n?/\\* ━━ AI Usage Dashboard styles[\\s\\S]*$`), "");
+      }
+      const newStyles = generateStylesCss(selected);
+      stylesText = stylesText.trimEnd() + "\n" + newStyles;
+      fs.writeFileSync(stylesPath, stylesText, "utf-8");
+      stylesResult = "installed";
+    }
+
+    const barWidget = layout === "grouped" ? "ai_usage_group" : "ai_status";
+    res.json({
+      ok: true,
+      configPath,
+      stylesPath,
+      stylesResult,
+      widgetsInstalled: selected.map(s => `ai_${s}`).concat(["ai_status"]),
+      barWidget,
+      message: `Installed ${selected.length} service widget(s). Add "${barWidget}" to your bar's widgets list.`,
+    });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: `Installation failed: ${e.message}` });
+  }
+});
+
+app.post("/api/yasb/uninstall", requireAdmin, express.json(), (req, res) => {
+  const configPath = req.body?.configPath || findYasbConfig();
+  if (!configPath || !fs.existsSync(configPath)) {
+    return res.status(400).json({ ok: false, error: "YASB config not found" });
+  }
+
+  try {
+    let configText = fs.readFileSync(configPath, "utf-8");
+    if (configText.includes(AI_WIDGET_MARKER)) {
+      configText = configText.replace(new RegExp(`\\n?${AI_WIDGET_MARKER.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}[\\s\\S]*$`), "");
+      fs.writeFileSync(configPath, configText.trimEnd() + "\n", "utf-8");
+    }
+
+    const stylesPath = findYasbStyles(configPath);
+    if (stylesPath) {
+      let stylesText = fs.readFileSync(stylesPath, "utf-8");
+      if (stylesText.includes(AI_STYLE_MARKER)) {
+        stylesText = stylesText.replace(new RegExp(`\\n?/\\* ━━ AI Usage Dashboard styles[\\s\\S]*$`), "");
+        fs.writeFileSync(stylesPath, stylesText.trimEnd() + "\n", "utf-8");
+      }
+    }
+
+    res.json({ ok: true, message: "AI widgets removed from YASB config" });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: `Uninstall failed: ${e.message}` });
+  }
+});
+
+app.get("/api/yasb/preview", (req, res) => {
+  const services = (req.query.services || "chatgpt,copilot,claude,ollama,zai,gemini").split(",").filter(Boolean);
+  const layout = req.query.layout || "grouped";
+  res.json({
+    config: generateWidgetYaml(services, layout),
+    styles: generateStylesCss(services),
+    barWidget: layout === "grouped" ? "ai_usage_group" : "ai_status",
+  });
 });
 
 app.get("/api/health", (_req, res) => {
@@ -1404,6 +1749,8 @@ const server = app.listen(PORT, HOST, () => {
   const geminiAuthSource = String(CFG.GEMINI_ACCESS_TOKEN || "").trim() ? "env" : (findGcloudBinary() ? "gcloud" : "none");
   console.log(`  Gemini    ${geminiProject ? "OK" : "--"}${geminiProject ? ` (${geminiProject})` : ""}${geminiProject ? ` [${geminiAuthSource}]` : ""}`);
   console.log(`  Admin     ${CFG.ADMIN_TOKEN ? "OK" : "--"}\n`);
+  // Pre-warm summary cache so the first YASB poll gets an instant response
+  computeSummary().catch(() => {});
 });
 
 server.on("error", (err) => {

@@ -9,6 +9,7 @@
   },
   "dependencies": {
     "express": "^4.21.0",
+    "js-yaml": "^4.1.0",
     "ollama": "^0.5.14"
   },
   "keywords": ["yasb", "ai", "usage", "dashboard", "chatgpt", "copilot", "claude", "ollama"],

@@ -308,6 +308,7 @@ function render(){
       </div>
       <div style="display:flex;gap:6px">
         <button class="btn" id="refresh-btn" onclick="refreshAll()">${(()=>{const anyLoading=["chatgpt","copilot","claude","ollama","zai","gemini"].some(id=>S[id]?.loading);if(anyLoading)return`<span class="spin" style="display:inline-block;width:10px;height:10px;border:1.5px solid var(--t4);border-top-color:var(--t1);border-radius:50%;vertical-align:middle;margin-right:5px"></span>Updating...`;const secs=Math.max(0,Math.round((_nextRefreshAt-Date.now())/1000));const countdown=secs<60?`${secs}s`:`${Math.floor(secs/60)}m ${secs%60}s`;const cdColor=secs<15?"var(--amber)":"var(--t4)";return`Refresh All<span style="font-size:9px;color:${cdColor};margin-left:6px;font-weight:400;font-variant-numeric:tabular-nums">${countdown}</span>`;})()}</button>
+        <button class="btn" onclick="S.modal='yasb';render()">YASB Widgets</button>
         <button class="btn" onclick="S.modal='config';render()">Settings</button>
       </div>
     </div>
@@ -330,6 +331,7 @@ function render(){
 
   o+=`</div>`;
   if(S.modal==="config")o+=vSettings();
+  if(S.modal==="yasb")o+=vYasbWizard();
   $("#root").innerHTML=o;
   document.querySelectorAll('a[target="_blank"]').forEach(a=>{a.rel="noopener noreferrer"});
 }
@@ -1534,7 +1536,317 @@ async function validateClaude(){
   if(btn){btn.disabled=false;btn.textContent='Validate';}
 }
 
-function vSettings(){
+// ━━━ YASB WIDGET INSTALLER ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+let _yasbState = { step: "detect", detecting: false, detected: null, services: [], layout: "grouped", installing: false, result: null, preview: null, error: null };
+
+async function yasbDetect() {
+  _yasbState.detecting = true;
+  _yasbState.error = null;
+  render();
+  try {
+    const r = await api("/api/yasb/detect");
+    _yasbState.detected = r;
+    if (r.found) {
+      // Pre-select services that are configured in the dashboard
+      const configured = configuredServices();
+      _yasbState.services = configured.length > 0 ? configured : ["chatgpt", "copilot", "claude", "ollama", "zai", "gemini"];
+      _yasbState.step = r.widgetsInstalled ? "status" : "services";
+    } else {
+      _yasbState.step = "not-found";
+    }
+  } catch (e) {
+    _yasbState.error = e.message || "Detection failed";
+  }
+  _yasbState.detecting = false;
+  render();
+}
+
+async function yasbPreview() {
+  const svcs = _yasbState.services.join(",");
+  try {
+    _yasbState.preview = await api(`/api/yasb/preview?services=${svcs}&layout=${_yasbState.layout}`);
+  } catch {}
+  _yasbState.step = "preview";
+  render();
+}
+
+async function yasbInstall() {
+  _yasbState.installing = true;
+  _yasbState.error = null;
+  render();
+  try {
+    const r = await api("/api/yasb/install", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ services: _yasbState.services, layout: _yasbState.layout }),
+    });
+    _yasbState.result = r;
+    _yasbState.step = r.ok ? "done" : "error";
+    if (!r.ok) _yasbState.error = r.error;
+  } catch (e) {
+    _yasbState.error = e.message || "Installation failed";
+    _yasbState.step = "error";
+  }
+  _yasbState.installing = false;
+  render();
+}
+
+async function yasbUninstall() {
+  _yasbState.installing = true;
+  render();
+  try {
+    await api("/api/yasb/uninstall", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({}) });
+    _yasbState.step = "detect";
+    _yasbState.detected = null;
+    _yasbState.result = null;
+    await yasbDetect();
+  } catch (e) {
+    _yasbState.error = e.message;
+  }
+  _yasbState.installing = false;
+  render();
+}
+
+function yasbToggleService(svc) {
+  const idx = _yasbState.services.indexOf(svc);
+  if (idx >= 0) _yasbState.services.splice(idx, 1);
+  else _yasbState.services.push(svc);
+  render();
+}
+
+function vYasbWizard() {
+  const st = _yasbState;
+  const svcNames = { chatgpt: "ChatGPT", copilot: "Copilot", claude: "Claude", ollama: "Ollama", zai: "Z.AI", gemini: "Gemini" };
+  const svcColors = { chatgpt: "var(--chatgpt)", copilot: "var(--copilot)", claude: "var(--claude)", ollama: "var(--ollama)", zai: "var(--zai)", gemini: "var(--gemini)" };
+
+  let content = "";
+
+  // Step: Detect
+  if (st.step === "detect") {
+    content = `
+      <div style="text-align:center;padding:20px 0">
+        <div style="width:48px;height:48px;border-radius:14px;background:linear-gradient(135deg,rgba(167,139,250,.12),rgba(16,185,129,.08));border:1px solid var(--b2);display:flex;align-items:center;justify-content:center;margin:0 auto 16px">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+        </div>
+        <h3 style="font-size:14px;font-weight:700;margin-bottom:6px">YASB Widget Setup</h3>
+        <p style="font-size:11px;color:var(--t3);line-height:1.6;max-width:340px;margin:0 auto 20px">
+          Install AI usage widgets directly into your <a href="https://github.com/amnweb/yasb" target="_blank" style="color:var(--ollama);text-decoration:underline">YASB</a> status bar.
+          Shows real-time usage for each AI service with color-coded indicators.
+        </p>
+        ${st.detecting
+          ? `<div style="display:flex;align-items:center;justify-content:center;gap:8px;color:var(--t2)"><span class="spin" style="display:inline-block;width:12px;height:12px;border:1.5px solid var(--t4);border-top-color:var(--t1);border-radius:50%"></span><span style="font-size:11px">Detecting YASB...</span></div>`
+          : `<button class="btn btn-p" onclick="yasbDetect()">Detect YASB Installation</button>`
+        }
+        ${st.error ? `<p style="color:var(--red);font-size:10px;margin-top:10px">${h(st.error)}</p>` : ""}
+        <p style="font-size:9.5px;color:var(--t4);margin-top:16px;line-height:1.5">
+          <strong>Don't have YASB?</strong> Get it at <a href="https://github.com/amnweb/yasb" target="_blank" style="color:var(--ollama)">github.com/amnweb/yasb</a><br>
+          Or scroll down to copy the config manually.
+        </p>
+        <div style="border-top:1px solid var(--b1);margin-top:16px;padding-top:16px">
+          <button class="btn" style="font-size:10px" onclick="_yasbState.step='services';_yasbState.services=['chatgpt','copilot','claude','ollama','zai','gemini'];render()">
+            Skip detection &mdash; configure manually
+          </button>
+        </div>
+      </div>`;
+  }
+
+  // Step: Not Found
+  else if (st.step === "not-found") {
+    content = `
+      <div style="text-align:center;padding:16px 0">
+        <div style="font-size:28px;margin-bottom:12px">📂</div>
+        <h3 style="font-size:14px;font-weight:700;margin-bottom:6px">YASB Config Not Found</h3>
+        <p style="font-size:11px;color:var(--t3);line-height:1.6;max-width:340px;margin:0 auto 16px">
+          Could not find a YASB configuration file. Checked:<br>
+          <code class="mono" style="font-size:9.5px;color:var(--t4)">~/.config/yasb/config.yaml</code>
+        </p>
+        <p style="font-size:11px;color:var(--t2);margin-bottom:16px">You can still get the widget config to copy manually:</p>
+        <button class="btn btn-p" onclick="_yasbState.step='services';_yasbState.services=['chatgpt','copilot','claude','ollama','zai','gemini'];render()">
+          Configure Widgets Manually
+        </button>
+      </div>`;
+  }
+
+  // Step: Already Installed Status
+  else if (st.step === "status") {
+    const d = st.detected;
+    content = `
+      <div style="padding:4px 0">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:16px">
+          <span class="ch ch-ok"><span class="dot dot-g pulse"></span>Installed</span>
+          <span style="font-size:10px;color:var(--t3)">${d.installedWidgets.length} widget(s) found</span>
+        </div>
+        <div style="background:var(--s2);border:1px solid var(--b1);border-radius:var(--rs);padding:12px;margin-bottom:12px">
+          <div style="font-size:10px;color:var(--t3);margin-bottom:8px">Detected widgets:</div>
+          <div style="display:flex;flex-wrap:wrap;gap:6px">
+            ${d.installedWidgets.map(w => {
+              const svc = w.replace("ai_", "");
+              const color = svcColors[svc] || "var(--t2)";
+              return `<span style="font-size:10px;padding:3px 8px;border-radius:4px;background:var(--s3);border:1px solid var(--b1);color:${color};font-weight:600">${svcNames[svc] || w}</span>`;
+            }).join("")}
+          </div>
+        </div>
+        <div style="font-size:10px;color:var(--t4);margin-bottom:4px">Config: <code class="mono" style="font-size:9px">${h(d.configPath)}</code></div>
+        ${d.stylesPath ? `<div style="font-size:10px;color:var(--t4);margin-bottom:12px">Styles: <code class="mono" style="font-size:9px">${h(d.stylesPath)}</code></div>` : ""}
+        <div style="display:flex;gap:6px;margin-top:16px">
+          <button class="btn btn-p" onclick="_yasbState.step='services';_yasbState.services=${JSON.stringify(d.installedWidgets.filter(w=>w!=='ai_usage_group'&&w!=='ai_status').map(w=>w.replace('ai_','')))};render()">
+            Reinstall / Change Services
+          </button>
+          <button class="btn" style="color:var(--red);border-color:rgba(239,68,68,.12)" onclick="if(confirm('Remove all AI widgets from YASB config?'))yasbUninstall()">
+            Uninstall
+          </button>
+        </div>
+      </div>`;
+  }
+
+  // Step: Select Services
+  else if (st.step === "services") {
+    const allSvcs = ["chatgpt", "copilot", "claude", "ollama", "zai", "gemini"];
+    content = `
+      <div style="padding:4px 0">
+        <h3 style="font-size:13px;font-weight:700;margin-bottom:4px">Which AI services do you use?</h3>
+        <p style="font-size:10px;color:var(--t3);margin-bottom:14px">Select the services to show in your YASB bar. Unconfigured services will auto-hide.</p>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:18px">
+          ${allSvcs.map(svc => {
+            const selected = st.services.includes(svc);
+            const color = svcColors[svc];
+            const configured = isConfigured(svc);
+            return `<button onclick="yasbToggleService('${svc}')" style="
+              display:flex;align-items:center;gap:8px;padding:10px 12px;border-radius:var(--rs);
+              border:1px solid ${selected ? color : "var(--b1)"};
+              background:${selected ? `${color}11` : "var(--s2)"};
+              cursor:pointer;transition:all .15s;text-align:left
+            ">
+              <span style="width:16px;height:16px;border-radius:4px;border:1.5px solid ${selected ? color : "var(--t4)"};
+                background:${selected ? color : "transparent"};display:flex;align-items:center;justify-content:center;flex-shrink:0">
+                ${selected ? `<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>` : ""}
+              </span>
+              <div>
+                <div style="font-size:11px;font-weight:600;color:${selected ? color : "var(--t2)"}">${svcNames[svc]}</div>
+                ${configured ? `<div style="font-size:9px;color:var(--green)">Configured</div>` : `<div style="font-size:9px;color:var(--t4)">Not configured</div>`}
+              </div>
+            </button>`;
+          }).join("")}
+        </div>
+        <div style="border-top:1px solid var(--b1);padding-top:14px;margin-bottom:14px">
+          <h4 style="font-size:11px;font-weight:700;margin-bottom:8px">Widget Layout</h4>
+          <div style="display:flex;gap:8px">
+            <button onclick="_yasbState.layout='grouped';render()" style="
+              flex:1;padding:10px 12px;border-radius:var(--rs);border:1px solid ${st.layout==="grouped" ? "var(--ollama)" : "var(--b1)"};
+              background:${st.layout==="grouped" ? "rgba(167,139,250,.08)" : "var(--s2)"};cursor:pointer;text-align:left
+            ">
+              <div style="font-size:11px;font-weight:600;color:${st.layout==="grouped" ? "var(--ollama)" : "var(--t2)"}">Grouped <span style="font-size:9px;color:var(--t3)">(Recommended)</span></div>
+              <div style="font-size:9.5px;color:var(--t4);margin-top:3px">Collapsible group with individual service widgets</div>
+            </button>
+            <button onclick="_yasbState.layout='combined';render()" style="
+              flex:1;padding:10px 12px;border-radius:var(--rs);border:1px solid ${st.layout==="combined" ? "var(--ollama)" : "var(--b1)"};
+              background:${st.layout==="combined" ? "rgba(167,139,250,.08)" : "var(--s2)"};cursor:pointer;text-align:left
+            ">
+              <div style="font-size:11px;font-weight:600;color:${st.layout==="combined" ? "var(--ollama)" : "var(--t2)"}">Single Widget</div>
+              <div style="font-size:9.5px;color:var(--t4);margin-top:3px">One compact widget showing all services at once</div>
+            </button>
+          </div>
+        </div>
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <button class="btn" onclick="_yasbState.step='detect';render()">Back</button>
+          <div style="display:flex;gap:6px">
+            <button class="btn" onclick="yasbPreview()" ${st.services.length === 0 ? "disabled" : ""}>Preview Config</button>
+            ${st.detected?.found ? `<button class="btn btn-p" onclick="yasbInstall()" ${st.services.length === 0 ? "disabled" : ""}>${st.installing ? "Installing..." : "Install to YASB"}</button>` : ""}
+          </div>
+        </div>
+      </div>`;
+  }
+
+  // Step: Preview
+  else if (st.step === "preview") {
+    const p = st.preview;
+    content = `
+      <div style="padding:4px 0">
+        <h3 style="font-size:13px;font-weight:700;margin-bottom:4px">Preview</h3>
+        <p style="font-size:10px;color:var(--t3);margin-bottom:14px">Review the config and styles that will be added to your YASB setup.</p>
+
+        <div style="margin-bottom:14px">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+            <span style="font-size:10.5px;font-weight:700;color:var(--t2)">config.yaml</span>
+            <button class="btn" style="font-size:9px;padding:3px 8px" onclick="navigator.clipboard.writeText(document.getElementById('yasb-preview-config').textContent)">Copy</button>
+          </div>
+          <pre id="yasb-preview-config" style="background:var(--bg);border:1px solid var(--b1);border-radius:var(--rs);padding:10px;font:10px/1.5 'JetBrains Mono',monospace;color:var(--t2);overflow-x:auto;max-height:200px;white-space:pre;margin:0">${p ? h(p.config) : ""}</pre>
+        </div>
+
+        <div style="margin-bottom:14px">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+            <span style="font-size:10.5px;font-weight:700;color:var(--t2)">styles.css</span>
+            <button class="btn" style="font-size:9px;padding:3px 8px" onclick="navigator.clipboard.writeText(document.getElementById('yasb-preview-styles').textContent)">Copy</button>
+          </div>
+          <pre id="yasb-preview-styles" style="background:var(--bg);border:1px solid var(--b1);border-radius:var(--rs);padding:10px;font:10px/1.5 'JetBrains Mono',monospace;color:var(--t2);overflow-x:auto;max-height:200px;white-space:pre;margin:0">${p ? h(p.styles) : ""}</pre>
+        </div>
+
+        ${p ? `<div style="background:rgba(167,139,250,.06);border:1px solid rgba(167,139,250,.1);border-radius:var(--rs);padding:10px;margin-bottom:14px">
+          <p style="font-size:10px;color:var(--ollama);font-weight:600;margin-bottom:4px">After installing, add to your bar:</p>
+          <code class="mono" style="font-size:11px;color:var(--t1)">widgets_right: ["${h(p.barWidget)}", ...]</code>
+        </div>` : ""}
+
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <button class="btn" onclick="_yasbState.step='services';render()">Back</button>
+          <div style="display:flex;gap:6px">
+            ${st.detected?.found ? `<button class="btn btn-p" onclick="yasbInstall()" ${st.installing ? "disabled" : ""}>${st.installing ? "Installing..." : "Install to YASB"}</button>` : ""}
+          </div>
+        </div>
+      </div>`;
+  }
+
+  // Step: Done
+  else if (st.step === "done") {
+    const r = st.result;
+    content = `
+      <div style="text-align:center;padding:20px 0">
+        <div style="font-size:32px;margin-bottom:12px">✅</div>
+        <h3 style="font-size:14px;font-weight:700;margin-bottom:6px;color:var(--green)">Widgets Installed!</h3>
+        <p style="font-size:11px;color:var(--t2);line-height:1.6;max-width:360px;margin:0 auto 16px">
+          ${r?.widgetsInstalled?.length || 0} widget(s) installed to your YASB config.
+          ${r?.stylesResult === "installed" ? "Styles updated too." : ""}
+        </p>
+        <div style="background:rgba(167,139,250,.06);border:1px solid rgba(167,139,250,.1);border-radius:var(--rs);padding:14px;margin:0 auto 16px;max-width:360px;text-align:left">
+          <p style="font-size:10.5px;font-weight:700;color:var(--ollama);margin-bottom:8px">⚡ Final step:</p>
+          <p style="font-size:10.5px;color:var(--t2);line-height:1.6">
+            Add <code class="mono" style="color:var(--t1);font-size:11px">"${h(r?.barWidget || "ai_usage_group")}"</code> to your bar's widget list in config.yaml:
+          </p>
+          <pre style="background:var(--bg);border:1px solid var(--b1);border-radius:4px;padding:8px;font:10px/1.5 'JetBrains Mono',monospace;color:var(--t1);margin-top:8px;white-space:pre">widgets_right: ["${h(r?.barWidget || "ai_usage_group")}", ...]</pre>
+          <p style="font-size:9.5px;color:var(--t4);margin-top:8px">YASB will auto-reload if <code class="mono">watch_config: true</code> is enabled.</p>
+        </div>
+        <div style="display:flex;justify-content:center;gap:6px">
+          <button class="btn" onclick="_yasbState={step:'detect',detecting:false,detected:null,services:[],layout:'grouped',installing:false,result:null,preview:null,error:null};S.modal=null;render()">Close</button>
+          <button class="btn btn-p" onclick="_yasbState.step='detect';yasbDetect()">Verify Installation</button>
+        </div>
+      </div>`;
+  }
+
+  // Step: Error
+  else if (st.step === "error") {
+    content = `
+      <div style="text-align:center;padding:20px 0">
+        <div style="font-size:32px;margin-bottom:12px">❌</div>
+        <h3 style="font-size:14px;font-weight:700;margin-bottom:6px;color:var(--red)">Installation Failed</h3>
+        <p style="font-size:11px;color:var(--t2);margin-bottom:16px">${h(st.error || "Unknown error")}</p>
+        <div style="display:flex;justify-content:center;gap:6px">
+          <button class="btn" onclick="_yasbState.step='services';render()">Try Again</button>
+          <button class="btn" onclick="_yasbState.step='detect';render()">Start Over</button>
+        </div>
+      </div>`;
+  }
+
+  return `<div class="ov" onclick="if(event.target===this){S.modal=null;render()}">
+  <div class="modal anim" style="width:520px">
+    <div style="display:flex;justify-content:space-between;align-items:start;margin-bottom:18px">
+      <div>
+        <h2 style="font-size:15px;font-weight:800">YASB Widget Setup</h2>
+        <p style="font-size:10px;color:var(--t3);margin-top:2px">Install AI usage widgets in your status bar</p>
+      </div>
+      <button class="btn" style="padding:5px 8px" onclick="S.modal=null;render()">&times;</button>
+    </div>
+    ${content}
+  </div></div>`;
+}
   return`<div class="ov" onclick="if(event.target===this){S.modal=null;render()}">
   <div class="modal anim">
     <div style="display:flex;justify-content:space-between;align-items:start;margin-bottom:18px">
