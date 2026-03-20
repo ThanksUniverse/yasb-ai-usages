@@ -358,13 +358,18 @@ function ollamaLocal() {
 }
 
 let _gcloudBinary = undefined;
+let _gcloudBinaryCheckedAt = 0;
 let _detectedGeminiProjectId = undefined;
+let _detectedGeminiProjectIdCheckedAt = 0;
 let _gcloudAccessTokenCache = { token: null, source: null, at: 0, errorAt: 0 };
+const GCLOUD_RETRY_INTERVAL = 5 * 60 * 1000; // retry failed detection every 5 min
 
 function runCommand(command, args, timeout = 8000) {
   try {
     const needsShell = process.platform === "win32" && /\.(cmd|bat)$/i.test(String(command));
-    const res = spawnSync(command, args, {
+    // Quote the command on Windows when using shell mode — paths with spaces break otherwise
+    const cmd = needsShell && command.includes(" ") ? `"${command}"` : command;
+    const res = spawnSync(cmd, args, {
       encoding: "utf8",
       timeout,
       windowsHide: true,
@@ -379,27 +384,49 @@ function runCommand(command, args, timeout = 8000) {
 }
 
 function findGcloudBinary() {
-  if (_gcloudBinary !== undefined) return _gcloudBinary;
+  // Return cached result if found, or retry after interval if previously failed
+  if (_gcloudBinary) return _gcloudBinary;
+  if (_gcloudBinary === null && Date.now() - _gcloudBinaryCheckedAt < GCLOUD_RETRY_INTERVAL) return null;
+
+  // 1) Try PATH-based lookup
   const bins = process.platform === "win32" ? ["gcloud.cmd", "gcloud"] : ["gcloud"];
   for (const bin of bins) {
     const out = runCommand(bin, ["--version"], 4000);
-    if (out) {
-      _gcloudBinary = bin;
-      return _gcloudBinary;
+    if (out) { _gcloudBinary = bin; return bin; }
+  }
+
+  // 2) On Windows, search common install locations (headless envs may lack PATH entries)
+  if (process.platform === "win32") {
+    const home = os.homedir();
+    const candidates = [
+      path.join(home, "AppData", "Local", "Google", "Cloud SDK", "google-cloud-sdk", "bin", "gcloud.cmd"),
+      path.join(process.env.ProgramFiles || "C:\\Program Files", "Google", "Cloud SDK", "google-cloud-sdk", "bin", "gcloud.cmd"),
+      path.join(process.env["ProgramFiles(x86)"] || "C:\\Program Files (x86)", "Google", "Cloud SDK", "google-cloud-sdk", "bin", "gcloud.cmd"),
+    ];
+    for (const p of candidates) {
+      if (fs.existsSync(p)) {
+        const out = runCommand(p, ["--version"], 4000);
+        if (out) { _gcloudBinary = p; return p; }
+      }
     }
   }
+
   _gcloudBinary = null;
+  _gcloudBinaryCheckedAt = Date.now();
   return null;
 }
 
 function getDetectedGeminiProjectId() {
-  if (_detectedGeminiProjectId !== undefined) return _detectedGeminiProjectId;
+  // Return cached result if found, or retry after interval if previously failed
+  if (_detectedGeminiProjectId) return _detectedGeminiProjectId;
+  if (_detectedGeminiProjectId === null && Date.now() - _detectedGeminiProjectIdCheckedAt < GCLOUD_RETRY_INTERVAL) return null;
+
   const bin = findGcloudBinary();
-  if (!bin) return _detectedGeminiProjectId = null;
+  if (!bin) { _detectedGeminiProjectId = null; _detectedGeminiProjectIdCheckedAt = Date.now(); return null; }
   const out = runCommand(bin, ["config", "get-value", "project"], 4000);
-  if (!out) return _detectedGeminiProjectId = null;
+  if (!out) { _detectedGeminiProjectId = null; _detectedGeminiProjectIdCheckedAt = Date.now(); return null; }
   const trimmed = out.trim();
-  if (!trimmed || trimmed === "(unset)" || trimmed === "unset") return _detectedGeminiProjectId = null;
+  if (!trimmed || trimmed === "(unset)" || trimmed === "unset") { _detectedGeminiProjectId = null; _detectedGeminiProjectIdCheckedAt = Date.now(); return null; }
   return _detectedGeminiProjectId = trimmed;
 }
 
