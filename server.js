@@ -168,12 +168,26 @@ if (!CFG.ADMIN_TOKEN) CFG.ADMIN_TOKEN = crypto.randomBytes(24).toString("hex");
 
 // ── Gemini prefs (lightweight key-value store) ─────────────────
 const PREFS_PATH = path.join(__dirname, "data", "prefs.json");
-let _prefs = {};
+let _prefs = { disabledServices: [] };
 function loadPrefs() {
-  try { if (fs.existsSync(PREFS_PATH)) _prefs = JSON.parse(fs.readFileSync(PREFS_PATH, "utf-8")); } catch {}
+  try {
+    if (fs.existsSync(PREFS_PATH)) {
+      const raw = fs.readFileSync(PREFS_PATH, "utf-8");
+      const parsed = JSON.parse(raw);
+      _prefs = { disabledServices: [], ...parsed };
+    }
+  } catch (e) {
+    console.warn(`[prefs] Failed to load ${PREFS_PATH}: ${e.message}. Using defaults.`);
+    _prefs = { disabledServices: [] };
+  }
 }
 function savePref(k, v) {
   _prefs[k] = v;
+  try { fs.mkdirSync(path.dirname(PREFS_PATH), { recursive: true }); fs.writeFileSync(PREFS_PATH, JSON.stringify(_prefs, null, 2)); } catch {}
+}
+function getPrefs() { return _prefs; }
+function savePrefs(p) {
+  _prefs = p;
   try { fs.mkdirSync(path.dirname(PREFS_PATH), { recursive: true }); fs.writeFileSync(PREFS_PATH, JSON.stringify(_prefs, null, 2)); } catch {}
 }
 loadPrefs();
@@ -933,7 +947,7 @@ app.get("/api/gemini/usage", async (_req, res) => {
 app.post("/api/gemini/set-default", (req, res) => {
   const modelId = String(req.body?.modelId || "").trim();
   savePref("gemini_selected_model", modelId);
-  _summaryCache = null;
+  // Mark cache stale, but NEVER null _summaryCache (breaks stale-while-revalidate)
   _summaryCacheTime = 0;
   _geminiCache = null;
   _geminiCacheTime = 0;
@@ -1228,6 +1242,35 @@ let _healthCache = null;
 let _healthCacheTime = 0;
 const HEALTH_CACHE_TTL = 5_000; // match YASB poll interval so all monitors see identical snapshot
 
+// Per-service last-good stale tracking (survives server restarts)
+const LAST_GOOD_PATH = path.join(__dirname, 'data', 'yasb-last-good.json');
+let _svcLastGood = {};  // { chatgpt: { chatgpt_session, chatgpt_weekly, ... }, ... }
+
+// Load from disk on startup so YASB doesn't lose data on server restart
+(function loadLastGood() {
+  try {
+    if (fs.existsSync(LAST_GOOD_PATH)) {
+      _svcLastGood = JSON.parse(fs.readFileSync(LAST_GOOD_PATH, 'utf-8')) || {};
+    }
+  } catch {}
+})();
+
+function saveLastGood() {
+  try {
+    fs.mkdirSync(path.dirname(LAST_GOOD_PATH), { recursive: true });
+    fs.writeFileSync(LAST_GOOD_PATH, JSON.stringify(_svcLastGood), 'utf-8');
+  } catch {}
+}
+
+const SVC_YASB_FIELDS = {
+  chatgpt: ['chatgpt_session','chatgpt_weekly','chatgpt_session_reset','chatgpt_weekly_reset'],
+  copilot: ['copilot_used','copilot_total','copilot_pct','copilot_reset'],
+  claude: ['claude_session','claude_weekly','claude_session_reset','claude_weekly_reset'],
+  ollama: ['ollama_session','ollama_weekly','ollama_session_reset','ollama_weekly_reset'],
+  zai: ['zai_token_pct','zai_mcp_pct'],
+  gemini: ['gemini_model','gemini_rpm_used','gemini_rpm_limit','gemini_tpm_used','gemini_tpm_limit','gemini_rpd_used','gemini_rpd_limit','gemini_rpd_pct','gemini_rpd_reset'],
+};
+
 const formatSeconds = (s) => {
   if (!s || s <= 0) return "--";
   if (s < 3600) return Math.floor(s / 60) + "m";
@@ -1292,6 +1335,11 @@ async function _fetchSummary() {
       result.chatgpt_weekly = Math.round(rl.secondary_window?.used_percent || 0);
       result.chatgpt_session_reset = formatSeconds(rl.primary_window?.reset_after_seconds);
       result.chatgpt_weekly_reset = formatSeconds(rl.secondary_window?.reset_after_seconds);
+      // Smaller reset time = whichever window resets sooner
+      const _cgSecs = rl.primary_window?.reset_after_seconds ?? Infinity;
+      const _cgWSecs = rl.secondary_window?.reset_after_seconds ?? Infinity;
+      result.chatgpt_limit_reset = _cgSecs <= _cgWSecs
+        ? result.chatgpt_session_reset : result.chatgpt_weekly_reset;
       result.chatgpt_ok = true;
     }
     const copilot = copilotR.status === "fulfilled" ? copilotR.value : null;
@@ -1314,6 +1362,11 @@ async function _fetchSummary() {
       result.claude_weekly = sd.utilization != null ? Math.round(sd.utilization) : null;
       result.claude_session_reset = formatUntil(fh.resets_at);
       result.claude_weekly_reset = formatUntil(sd.resets_at);
+      // Smaller reset time = whichever resets sooner
+      const _clST = fh.resets_at ? new Date(fh.resets_at).getTime() : Infinity;
+      const _clWT = sd.resets_at ? new Date(sd.resets_at).getTime() : Infinity;
+      result.claude_limit_reset = _clST <= _clWT
+        ? result.claude_session_reset : result.claude_weekly_reset;
       result.claude_ok = true;
     }
     const ollama = ollamaR.status === "fulfilled" ? ollamaR.value : null;
@@ -1322,6 +1375,11 @@ async function _fetchSummary() {
       result.ollama_weekly = ollama.weekly_pct != null ? Math.round(ollama.weekly_pct) : null;
       result.ollama_session_reset = formatUntil(ollama.session_resets_at);
       result.ollama_weekly_reset = formatUntil(ollama.weekly_resets_at);
+      // Smaller reset time = whichever resets sooner
+      const _olST = ollama.session_resets_at ? new Date(ollama.session_resets_at).getTime() : Infinity;
+      const _olWT = ollama.weekly_resets_at ? new Date(ollama.weekly_resets_at).getTime() : Infinity;
+      result.ollama_limit_reset = _olST <= _olWT
+        ? result.ollama_session_reset : result.ollama_weekly_reset;
       result.ollama_ok = true;
     }
     const zai = zaiR.status === "fulfilled" ? zaiR.value : null;
@@ -1351,12 +1409,66 @@ async function _fetchSummary() {
       result.gemini_rpd_reset = formatSeconds((nextMidnight - now) / 1000);
       result.gemini_ok = true;
     }
+
   // Normalize nulls → "--" so YASB labels never render "None"
+  // Do this BEFORE stale tracking so we save normalized data to disk
   for (const k of Object.keys(result)) {
     if (result[k] === null) result[k] = "--";
   }
+
+  // ── Per-service stale tracking ──────────────────────────────────────
+  // For each service: if API succeeded, save to disk. If failed, serve stale + stale_marker.
+  let lastGoodChanged = false;
+  for (const [svc, fields] of Object.entries(SVC_YASB_FIELDS)) {
+    const okKey = `${svc}_ok`;
+    if (result[okKey] === true) {
+      // Fresh data — snapshot for future stale fallback (post-normalization)
+      _svcLastGood[svc] = {};
+      for (const f of fields) _svcLastGood[svc][f] = result[f];
+      result[`${svc}_stale`] = false;
+      result[`${svc}_stale_marker`] = '';
+      lastGoodChanged = true;
+    } else if (_svcLastGood[svc]) {
+      // API failed but we have last-good data — serve stale
+      for (const f of fields) result[f] = _svcLastGood[svc][f];
+      result[okKey] = true;  // Mark as "ok enough" to return JSON (not 204)
+      result[`${svc}_stale`] = true;
+      result[`${svc}_stale_marker`] = '⚠ ';
+    } else {
+      // Never had data for this service — stays 204
+      result[`${svc}_stale`] = false;
+      result[`${svc}_stale_marker`] = '';
+    }
+  }
+  if (lastGoodChanged) saveLastGood();
+  // ── End stale tracking ──────────────────────────────────────────────
   _summaryCache = result;
   _summaryCacheTime = Date.now();
+  return result;
+}
+
+function buildSyntheticSummary() {
+  // Build a summary from disk-persisted last-good data, with all-stale markers.
+  // Used on cold start so YASB doesn't block/disappear while first fetch completes.
+  const result = {};
+  for (const [svc, fields] of Object.entries(SVC_YASB_FIELDS)) {
+    const okKey = `${svc}_ok`;
+    if (_svcLastGood[svc]) {
+      for (const f of fields) result[f] = _svcLastGood[svc][f] ?? '--';
+      result[okKey] = true;
+      result[`${svc}_stale`] = true;
+      result[`${svc}_stale_marker`] = '⚠ ';
+    } else {
+      result[okKey] = false;
+      result[`${svc}_stale`] = false;
+      result[`${svc}_stale_marker`] = '';
+    }
+  }
+  // Fill in defaults for any missing fields
+  const allFields = Object.values(SVC_YASB_FIELDS).flat();
+  for (const f of allFields) {
+    if (result[f] === undefined) result[f] = '--';
+  }
   return result;
 }
 
@@ -1373,11 +1485,42 @@ async function computeSummary() {
     return _summaryCache;
   }
 
-  // No cache (cold start) — must wait for first fetch
+  // No cache (cold start)
+  // If we have disk-persisted last-good data, serve it immediately without blocking.
+  // This prevents YASB widgets from disappearing while server warms up.
+  if (Object.keys(_svcLastGood).length > 0) {
+    const synthetic = buildSyntheticSummary();
+    // Start fresh fetch in background
+    if (!_summaryFetch) {
+      _summaryFetch = _fetchSummary().finally(() => { _summaryFetch = null; });
+    }
+    return synthetic;
+  }
+  // True cold start with no disk data — must wait for first fetch
   if (_summaryFetch) return _summaryFetch;
   _summaryFetch = _fetchSummary().finally(() => { _summaryFetch = null; });
   return _summaryFetch;
 }
+
+// Preferences — persisted to disk so YASB can respect service toggles
+app.get("/api/prefs", (_req, res) => {
+  res.json(getPrefs());
+});
+app.post("/api/prefs", (req, res) => {
+  const body = req.body || {};
+  if (!body || typeof body !== 'object') {
+    return res.status(400).json({ error: "Invalid request body" });
+  }
+  // Merge — only allow known keys
+  const updated = {
+    ...getPrefs(),
+    ...(Array.isArray(body.disabledServices) ? { disabledServices: body.disabledServices } : {}),
+  };
+  savePrefs(updated);
+  // Mark YASB cache stale so next poll reflects the change immediately
+  _summaryCacheTime = 0;
+  res.json(updated);
+});
 
 app.get("/api/yasb/summary", async (_req, res) => {
   try { res.json(await computeSummary()); } catch (e) { res.json({ error: e.message }); }
@@ -1392,6 +1535,8 @@ for (const [svc, okKey] of [
 ]) {
   app.get(`/api/yasb/${svc}`, async (_req, res) => {
     try {
+      // Server-side disable — returns 204 so YASB hide_empty hides the widget
+      if (getPrefs().disabledServices?.includes(svc)) return res.status(204).end();
       const data = await computeSummary();
       data[okKey] ? res.json(data) : res.status(204).end();
     } catch { res.status(204).end(); }

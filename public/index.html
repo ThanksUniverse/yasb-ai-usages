@@ -104,6 +104,52 @@ label{display:block;font:600 10.5px/1 "Inter",sans-serif;color:var(--t2);margin-
 /* Empty state */
 .empty-state{text-align:center;padding:60px 20px}
 .empty-state .icon{width:48px;height:48px;border-radius:16px;display:flex;align-items:center;justify-content:center;margin:0 auto 16px;font-size:20px;opacity:.3}
+
+/* ShadCN-style toggle switch */
+.toggle-sw{position:relative;display:inline-block;width:36px;height:20px;flex-shrink:0;cursor:pointer}
+.toggle-sw input{opacity:0;width:0;height:0;position:absolute}
+.toggle-sw .track{position:absolute;inset:0;border-radius:10px;background:var(--s4);border:1px solid var(--b2);transition:all .2s}
+.toggle-sw input:checked~.track{background:var(--green);border-color:rgba(34,197,94,.4)}
+.toggle-sw .thumb{position:absolute;top:3px;left:3px;width:12px;height:12px;border-radius:50%;background:#fff;transition:transform .2s;box-shadow:0 1px 3px rgba(0,0,0,.3)}
+.toggle-sw input:checked~.thumb{transform:translateX(16px)}
+
+/* Stale card indicator */
+.card-stale{border-color:rgba(245,158,11,.25)!important;box-shadow:0 0 0 1px rgba(245,158,11,.1)!important}
+.stale-badge{display:inline-flex;align-items:center;gap:3px;padding:2px 6px;border-radius:4px;
+  background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.15);
+  color:#f59e0b;font:600 8.5px "Inter",sans-serif;letter-spacing:.2px}
+
+/* Per-service updating indicator in header */
+.updating-bar{display:flex;align-items:center;gap:6px;padding:5px 10px;border-radius:var(--rs);
+  background:rgba(255,255,255,.03);border:1px solid var(--b1);font-size:10px;color:var(--t3)}
+.updating-bar .spin-sm{width:10px;height:10px;border:1.5px solid var(--t4);border-top-color:var(--t1);border-radius:50%;flex-shrink:0;animation:spin .6s linear infinite}
+
+/* Card stale pulsing accent */
+@keyframes stale-pulse{0%,100%{opacity:.4}50%{opacity:.8}}
+.accent-stale{animation:stale-pulse 2s ease-in-out infinite}
+
+/* Reset time pill — shown inline on cards */
+.reset-pill{display:inline-flex;align-items:center;gap:3px;padding:2px 7px;border-radius:20px;
+  background:rgba(255,255,255,.04);border:1px solid var(--b1);
+  font:600 9px "JetBrains Mono",monospace;color:var(--t3);letter-spacing:.3px;white-space:nowrap}
+.reset-pill .ri{opacity:.5;font-size:8px}
+
+/* Dual percentage display */
+.dual-pct{display:inline-flex;align-items:baseline;gap:3px}
+.dual-pct .pct-s{font-family:"JetBrains Mono";font-weight:700}
+.dual-pct .sep{color:var(--t4);font-size:8px;opacity:.6}
+.dual-pct .pct-w{font-family:"JetBrains Mono";font-weight:500;opacity:.65;font-size:.85em}
+
+/* Metric row — compact data display */
+.mrow{display:flex;align-items:center;justify-content:space-between;padding:2px 0}
+.mrow .ml{font-size:9.5px;color:var(--t3)}
+.mrow .mv{font-family:"JetBrains Mono";font-size:11px;font-weight:600;color:var(--t2)}
+
+/* Card stat grid — compact */
+.csgrid{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:8px}
+.csbox{padding:8px 10px;border-radius:8px;background:var(--bg);border:1px solid var(--b1)}
+.csbox .csv{font-family:"JetBrains Mono";font-size:15px;font-weight:700;line-height:1}
+.csbox .csl{font:600 8px "Inter",sans-serif;text-transform:uppercase;letter-spacing:1.5px;color:var(--t4);margin-top:3px}
 </style>
 </head>
 <body>
@@ -116,13 +162,14 @@ const S={
   modal:null,
   config:null,
   platforms:null,
-  // Per-service state: {data, loading, error, lastRefresh}
-  chatgpt:{data:null,loading:true,lastRefresh:null},
-  copilot:{data:null,loading:true,lastRefresh:null},
-  claude:{data:null,loading:true,lastRefresh:null},
-  ollama:{data:null,loading:true,lastRefresh:null},
-  zai:{data:null,loading:true,lastRefresh:null},
-  gemini:{data:null,loading:true,lastRefresh:null,selectedId:null},
+  disabledServices: (()=>{try{return new Set(JSON.parse(localStorage.getItem('ai-disabled-svcs')||'[]'))}catch{return new Set()}})(),
+  // Per-service state: {data, loading, error, lastRefresh, wasConfigured}
+  chatgpt:{data:null,loading:true,lastRefresh:null,wasConfigured:false},
+  copilot:{data:null,loading:true,lastRefresh:null,wasConfigured:false},
+  claude:{data:null,loading:true,lastRefresh:null,wasConfigured:false},
+  ollama:{data:null,loading:true,lastRefresh:null,wasConfigured:false},
+  zai:{data:null,loading:true,lastRefresh:null,wasConfigured:false},
+  gemini:{data:null,loading:true,lastRefresh:null,wasConfigured:false,selectedId:null},
 };
 const $=s=>document.querySelector(s);
 const h=s=>(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
@@ -175,14 +222,22 @@ async function loadService(id){
   render();
   const data=await api(serviceEndpoints[id]);
   S[id]={...(S[id]||{}),data,loading:false,lastRefresh:new Date()};
+  if(data?.configured) S[id].wasConfigured=true;
   render();
 }
 
 async function loadConfig(){
-  const[config,platforms]=await Promise.all([
-    api("/api/config"),api("/api/platforms"),
+  const results=await Promise.allSettled([
+    api("/api/config"),api("/api/platforms"),api("/api/prefs"),
   ]);
-  S.config=config;S.platforms=platforms;
+  const[config,platforms,prefs]=results.map(r=>r.status==='fulfilled'?r.value:null);
+  S.config=config||{};S.platforms=platforms||[];
+  // Sync server-side disabled services with local state
+  if(prefs && Array.isArray(prefs.disabledServices)){
+    S.disabledServices = new Set(prefs.disabledServices);
+    // Persist to localStorage too
+    try{localStorage.setItem('ai-disabled-svcs',JSON.stringify(prefs.disabledServices));}catch{}
+  }
 }
 
 async function loadAll(){
@@ -195,6 +250,7 @@ async function loadAll(){
   ids.forEach(id=>{
     api(serviceEndpoints[id]).then(data=>{
       S[id]={...(S[id]||{}),data,loading:false,lastRefresh:new Date()};
+      if(data?.configured) S[id].wasConfigured=true;
       // Seed Gemini selected model from server preference
       if(id==="gemini"&&data?.preferredModelId&&!S.gemini.selectedId){
         S.gemini.selectedId=data.preferredModelId;
@@ -224,6 +280,7 @@ async function refreshAll(){
   ids.forEach(id=>{
     api(serviceEndpoints[id]).then(data=>{
       S[id]={...(S[id]||{}),data,loading:false,lastRefresh:new Date()};
+      if(data?.configured) S[id].wasConfigured=true;
       render();
       _tickRefreshBtn();
     });
@@ -231,22 +288,36 @@ async function refreshAll(){
 }
 
 // 1-second ticker — updates button text directly without full re-render
+let _lastCountdownDisplay='';
 function _tickRefreshBtn(){
   const el=document.getElementById("refresh-btn");
   if(!el)return;
-  const anyLoading=["chatgpt","copilot","claude","ollama","zai","gemini"].some(id=>S[id]?.loading);
+  const allIds=["chatgpt","copilot","claude","ollama","zai","gemini"];
+  const anyLoading=allIds.some(id=>S[id]?.loading);
   if(anyLoading){
-    el.innerHTML=`<span class="spin" style="display:inline-block;width:10px;height:10px;border:1.5px solid var(--t4);border-top-color:var(--t1);border-radius:50%;vertical-align:middle;margin-right:5px"></span>Updating...`;
-    el.disabled=true;
-    el.style.opacity="0.7";
-  }else{
-    const secs=Math.max(0,Math.round((_nextRefreshAt-Date.now())/1000));
-    const countdown=secs<60?`${secs}s`:`${Math.floor(secs/60)}m ${secs%60}s`;
-    const cdColor=secs<15?"var(--amber)":"var(--t4)";
-    el.innerHTML=`Refresh All<span style="font-size:9px;color:${cdColor};margin-left:6px;font-weight:400;font-variant-numeric:tabular-nums">${countdown}</span>`;
-    el.disabled=false;
-    el.style.opacity="1";
+    const loadingIds=allIds.filter(id=>S[id]?.loading);
+    const names={chatgpt:"ChatGPT",copilot:"Copilot",claude:"Claude",ollama:"Ollama",zai:"Z.AI",gemini:"Gemini"};
+    const loadingNames=loadingIds.map(id=>names[id]).join(', ');
+    const btnHtml=`<span class="spin" style="display:inline-block;width:10px;height:10px;border:1.5px solid var(--t4);border-top-color:var(--t1);border-radius:50%;vertical-align:middle;margin-right:5px"></span>Updating...`;
+    if(el.innerHTML!==btnHtml){el.innerHTML=btnHtml;}
+    el.disabled=true;el.style.opacity="0.7";
+    // Update the loading bar if it exists
+    const lb=document.getElementById("loading-bar");
+    if(lb)lb.textContent=loadingNames;
+    return;
   }
+  el.disabled=false;el.style.opacity="1";
+  // Round to nearest 10s for clean display
+  const secs=Math.max(0,Math.round((_nextRefreshAt-Date.now())/1000));
+  const bucketed=Math.ceil(secs/10)*10;  // ceil gives 10,20,...,120
+  const countdown=bucketed<=0?'now':bucketed<60?`${bucketed}s`:`${Math.floor(bucketed/60)}m ${bucketed%60>0?bucketed%60+"s":''}`.trim();
+  const cdColor=bucketed<20?"var(--amber)":"var(--t4)";
+  const btnHtml=`Refresh All<span style="font-size:9px;color:${cdColor};margin-left:6px;font-weight:400;font-variant-numeric:tabular-nums">${countdown}</span>`;
+  // Only update DOM if display changed (avoids reflow every second)
+  if(el.innerHTML!==btnHtml)el.innerHTML=btnHtml;
+  // Hide loading bar
+  const lb=document.getElementById("loading-bar");
+  if(lb)lb.textContent='';
 }
 setInterval(_tickRefreshBtn,1000);
 setInterval(()=>{_nextRefreshAt=Date.now()+REFRESH_INTERVAL;refreshAll();},REFRESH_INTERVAL);
@@ -256,10 +327,32 @@ async function saveCfg(data){await api("/api/config",{method:"POST",headers:{"Co
 // ━━━ HELPERS ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 function configuredServices(){
   const ids=["chatgpt","copilot","claude","ollama","zai","gemini"];
+  const disabled = S.disabledServices || new Set();
   return ids.filter(id=>{
-    const d=S[id]?.data;
-    return d&&d.configured;
+    if(disabled.has(id)) return false;
+    const svc=S[id];
+    const d=svc?.data;
+    // Show if: currently data says configured, OR wasConfigured (don't drop on API error)
+    if(d&&d.configured) {
+      svc.wasConfigured=true;  // Side-effect: track that we've seen this configured once
+      return true;
+    }
+    return svc?.wasConfigured===true && !svc?.loading;
   });
+}
+
+function toggleService(id){
+  if(!S.disabledServices) S.disabledServices = new Set();
+  if(S.disabledServices.has(id)) S.disabledServices.delete(id);
+  else S.disabledServices.add(id);
+  const disabledArr=[...S.disabledServices];
+  // Persist locally
+  try{localStorage.setItem('ai-disabled-svcs',JSON.stringify(disabledArr));}catch{}
+  // Persist to server so YASB respects the setting (fire-and-forget, degrade gracefully)
+  api('/api/prefs',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({disabledServices:disabledArr})}).catch(()=>{});
+  // If tab was showing a now-disabled service, switch to overview
+  if(S.disabledServices.has(S.tab)) S.tab='overview';
+  render();
 }
 
 function isOk(id){
@@ -287,6 +380,7 @@ function cardRefreshBtn(id){
 
 // ━━━ RENDER ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 function render(){
+  const _sy=window.scrollY;
   const configured=configuredServices();
   const allIds=["chatgpt","copilot","claude","ollama","zai"];
   // Build tab list: overview + configured tabs only
@@ -306,10 +400,23 @@ function render(){
           <p style="font-size:10px;color:var(--t4);margin-top:1px">${configured.length} service${configured.length!==1?"s":""} connected</p>
         </div>
       </div>
-      <div style="display:flex;gap:6px">
-        <button class="btn" id="refresh-btn" onclick="refreshAll()">${(()=>{const anyLoading=["chatgpt","copilot","claude","ollama","zai","gemini"].some(id=>S[id]?.loading);if(anyLoading)return`<span class="spin" style="display:inline-block;width:10px;height:10px;border:1.5px solid var(--t4);border-top-color:var(--t1);border-radius:50%;vertical-align:middle;margin-right:5px"></span>Updating...`;const secs=Math.max(0,Math.round((_nextRefreshAt-Date.now())/1000));const countdown=secs<60?`${secs}s`:`${Math.floor(secs/60)}m ${secs%60}s`;const cdColor=secs<15?"var(--amber)":"var(--t4)";return`Refresh All<span style="font-size:9px;color:${cdColor};margin-left:6px;font-weight:400;font-variant-numeric:tabular-nums">${countdown}</span>`;})()}</button>
-        <button class="btn" onclick="S.modal='yasb';render()">YASB Widgets</button>
-        <button class="btn" onclick="S.modal='config';render()">Settings</button>
+      <div>
+        <div style="display:flex;gap:6px">
+          <button class="btn" id="refresh-btn" onclick="refreshAll()">${(()=>{const anyLoading=["chatgpt","copilot","claude","ollama","zai","gemini"].some(id=>S[id]?.loading);if(anyLoading)return`<span class="spin" style="display:inline-block;width:10px;height:10px;border:1.5px solid var(--t4);border-top-color:var(--t1);border-radius:50%;vertical-align:middle;margin-right:5px"></span>Updating...`;const secs=Math.max(0,Math.round((_nextRefreshAt-Date.now())/1000));const bucketed=Math.ceil(secs/10)*10;const countdown=bucketed<=0?'now':bucketed<60?`${bucketed}s`:`${Math.floor(bucketed/60)}m ${bucketed%60>0?bucketed%60+"s":''}`.trim();const cdColor=bucketed<20?"var(--amber)":"var(--t4)";return`Refresh All<span style="font-size:9px;color:${cdColor};margin-left:6px;font-weight:400;font-variant-numeric:tabular-nums">${countdown}</span>`;})()}</button>
+          <button class="btn" onclick="S.modal='yasb';render()">YASB Widgets</button>
+          <button class="btn" onclick="S.modal='config';render()">Settings</button>
+        </div>
+        ${(()=>{
+          const allIds=["chatgpt","copilot","claude","ollama","zai","gemini"];
+          const loadingIds=allIds.filter(id=>S[id]?.loading);
+          if(loadingIds.length===0)return'';
+          const svcNames={chatgpt:"ChatGPT",copilot:"Copilot",claude:"Claude",ollama:"Ollama",zai:"Z.AI",gemini:"Gemini"};
+          return`<div class="updating-bar" style="margin-top:8px">
+            <div class="spin-sm"></div>
+            <span>Updating: </span>
+            <span id="loading-bar" style="color:var(--t1);font-weight:600">${loadingIds.map(id=>svcNames[id]).join(', ')}</span>
+          </div>`;
+        })()}
       </div>
     </div>
     <nav class="tabs" style="margin-top:14px">
@@ -333,6 +440,7 @@ function render(){
   if(S.modal==="config")o+=vSettings();
   if(S.modal==="yasb")o+=vYasbWizard();
   $("#root").innerHTML=o;
+  if(_sy>0)requestAnimationFrame(()=>window.scrollTo(0,_sy));
   document.querySelectorAll('a[target="_blank"]').forEach(a=>{a.rel="noopener noreferrer"});
 }
 
@@ -368,6 +476,7 @@ function overviewCard(id,index){
   const svc=S[id];
   const loading=svc?.loading;
   const d=svc?.data||{};
+  const isStale = d?.stale === true;
 
   let content="";
 
@@ -401,13 +510,42 @@ function overviewCard(id,index){
   }
 
   const agoText=svc?.lastRefresh?fmtAgo(svc.lastRefresh):"";
+  
+  // Extract reset time from data (wrapped in try/catch for safety)
+  let resetInfo = '';
+  try {
+    const d2 = svc?.data || {};
+    if(isOk(id)) {
+      const u = d2.usage || {};
+      if(id==='chatgpt') {
+        const pw = u.rate_limit?.primary_window;
+        if(pw?.reset_after_seconds) resetInfo = fmtDur(pw.reset_after_seconds);
+      } else if(id==='claude') {
+        const fh = u.five_hour || u.usage?.five_hour || {};
+        if(fh.resets_at) resetInfo = timeUntil(fh.resets_at);
+      } else if(id==='copilot') {
+        if(d2.quotaReset) { const diff=new Date(d2.quotaReset)-Date.now(); if(diff>0) resetInfo=Math.ceil(diff/86400000)+'d'; }
+      } else if(id==='ollama') {
+        const real = u.real || {};
+        if(real.session_resets_at) resetInfo = timeUntil(real.session_resets_at);
+      }
+    }
+  } catch {}
+  
+  const staleBadge = isStale ? `<span class="stale-badge" style="margin-left:6px">⚠ Stale</span>` : '';
+  const accentGrad = isStale 
+    ? `linear-gradient(90deg,transparent,rgba(245,158,11,.4),transparent)`
+    : `linear-gradient(90deg,transparent,${color}30,transparent)`;
+  const accentClass = isStale ? 'accent-stale' : '';
 
-  return`<div class="c cp anim a${Math.min(index+1,4)}" style="cursor:pointer" onclick="S.tab='${id}';render()">
-    <div class="accent" style="background:linear-gradient(90deg,transparent,${color}30,transparent)"></div>
+  return`<div class="c cp anim a${Math.min(index+1,4)} ${isStale ? 'card-stale' : ''}" style="cursor:pointer" onclick="S.tab='${id}';render()">
+    <div class="accent ${accentClass}" style="background:${accentGrad}"></div>
     ${!loading?cardRefreshBtn(id):""}
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
       <div>
-        <div style="font-size:12.5px;font-weight:700">${name}</div>
+        <div style="font-size:12.5px;font-weight:700;display:flex;align-items:center;gap:6px">
+          ${name}${staleBadge}${resetInfo?`<span class="reset-pill"><span class="ri">↻</span>${resetInfo}</span>`:''}
+        </div>
         ${agoText?`<div style="font-size:9px;color:var(--t4);margin-top:1px">${agoText}</div>`:""}
       </div>
       ${statusChip(id)}
@@ -420,15 +558,22 @@ function overviewCard(id,index){
 function getOverviewChatGPT(){
   const u=S.chatgpt?.data?.usage;if(!u?.rate_limit)return null;
   const pw=u.rate_limit.primary_window||{};const sw=u.rate_limit.secondary_window||{};
-  return{gauge:gauge(pw.used_percent||0,"var(--chatgpt)",76,5,"Session"),
-    rows:[
-      {l:"Session (5h)",v:`${Math.round(pw.used_percent||0)}%`,c:pw.used_percent>65?"var(--amber)":"var(--chatgpt)"},
-      {l:"Weekly (7d)",v:`${Math.round(sw.used_percent||0)}%`,c:sw.used_percent>65?"var(--amber)":"var(--chatgpt)"},
-      {l:"Resets",v:fmtDur(pw.reset_after_seconds)},
-    ],
-    bar:{pct:sw.used_percent||0,color:"var(--chatgpt)"},
+  const sPct=Math.round(pw.used_percent||0);
+  const wPct=Math.round(sw.used_percent||0);
+  const showDual = Math.abs(sPct-wPct)>2;
+  const rows=[
+    {l:"Session (5h)",v:`${sPct}%`,c:sPct>65?"var(--amber)":"var(--chatgpt)"}
+  ];
+  if(showDual){
+    rows.push({l:"Weekly (7d)",v:`${wPct}%`,c:wPct>65?"var(--amber)":"var(--chatgpt)"});
+  }
+  rows.push({l:"Resets",v:fmtDur(pw.reset_after_seconds)});
+  const extra = showDual ? `<span style="font-size:9px;color:var(--t3)">${wPct}% weekly</span>` : (u.plan_type?(u.rate_limit.limit_reached?`<span class="ch ch-err" style="font-size:8px;padding:2px 7px">Limit Hit</span>`:""):"");
+  return{gauge:gauge(sPct,"var(--chatgpt)",76,5,"Session"),
+    rows:rows,
+    bar:{pct:wPct,color:"var(--chatgpt)"},
     plan:u.plan_type,
-    extra:u.rate_limit.limit_reached?`<span class="ch ch-err" style="font-size:8px;padding:2px 7px">Limit Hit</span>`:""};
+    extra:extra};
 }
 
 function getOverviewCopilot(){
@@ -453,14 +598,21 @@ function getOverviewClaude(){
   const sPct=fh.utilization!=null?fh.utilization:null;
   const wPct=sd.utilization!=null?sd.utilization:null;
   if(sPct!=null){
+    const sPctRound=Math.round(sPct);
+    const wPctRound=wPct!=null?Math.round(wPct):null;
+    const showDual = wPctRound!=null && Math.abs(sPctRound-wPctRound)>2;
+    const rows=[
+      {l:"Session (5h)",v:`${sPctRound}%`,c:sPct>65?"var(--amber)":"var(--claude)"}
+    ];
+    if(showDual&&wPctRound!=null){
+      rows.push({l:"Weekly (7d)",v:`${wPctRound}%`,c:wPct>65?"var(--amber)":"var(--claude)"});
+    }
+    const extra = (showDual&&wPctRound!=null) ? `<span style="font-size:9px;color:var(--t3)">${wPctRound}% weekly</span>` : (d.orgName?`<span style="font-size:9px;color:var(--t3)">${h(d.orgName)}</span>`:"");
     return{gauge:gauge(sPct,"var(--claude)",76,5,"Session"),
-      rows:[
-        {l:"Session (5h)",v:`${Math.round(sPct)}%`,c:sPct>65?"var(--amber)":"var(--claude)"},
-        {l:"Weekly (7d)",v:wPct!=null?`${Math.round(wPct)}%`:"--",c:wPct>65?"var(--amber)":"var(--claude)"},
-      ],
+      rows:rows,
       bar:{pct:wPct||0,color:"var(--claude)"},
       plan:d.plan,
-      extra:d.orgName?`<span style="font-size:9px;color:var(--t3)">${h(d.orgName)}</span>`:""};
+      extra:extra};
   }
   const rows=[];
   if(typeof u==="object"){
@@ -478,14 +630,19 @@ function getOverviewOllama(){
   const fh=usage.five_hour||{};const sd=usage.seven_day||{};
   if(real&&(real.session_pct!=null||real.weekly_pct!=null)){
     const sPct=real.session_pct||0;const wPct=real.weekly_pct||0;
+    const showDual = Math.abs(sPct-wPct)>2;
+    const rows=[
+      {l:"Session",v:`${sPct}%`,c:sPct>65?"var(--amber)":"var(--ollama)"}
+    ];
+    if(showDual){
+      rows.push({l:"Weekly",v:`${wPct}%`,c:wPct>65?"var(--amber)":"var(--ollama)"});
+    }
+    const extra = showDual ? `<span style="font-size:9px;color:var(--t3)">${wPct}% weekly</span>` : (d.local?.connected?`<span style="font-size:9px;color:var(--t3)">${d.local.modelCount} local</span>`:"");
     return{gauge:gauge(sPct,"var(--ollama)",76,5,"Session"),
-      rows:[
-        {l:"Session",v:`${sPct}%`,c:sPct>65?"var(--amber)":"var(--ollama)"},
-        {l:"Weekly",v:`${wPct}%`,c:wPct>65?"var(--amber)":"var(--ollama)"},
-      ],
+      rows:rows,
       bar:{pct:wPct,color:"var(--ollama)"},
       plan:d.account?.plan||real?.plan,
-      extra:d.local?.connected?`<span style="font-size:9px;color:var(--t3)">${d.local.modelCount} local</span>`:""};
+      extra:extra};
   }
   const hasUsage=fh.requests>0||sd.requests>0;
   if(hasUsage){
@@ -1941,6 +2098,31 @@ function vSettings(){
         <strong>Fallback:</strong> You can paste a temporary Google access token above — but tokens expire in ~1 hour. <span style="color:var(--amber)">Leave blank to use gcloud automatically (recommended).</span><br>
         <strong>Note:</strong> Gemini rate limits are read from Google Cloud quota and Monitoring APIs.
       </p>
+    </div>
+
+    <div style="margin-top:20px;padding-top:20px;border-top:1px solid var(--b1)">
+      <div class="lbl" style="margin-bottom:10px">Dashboard Services</div>
+      <p style="font-size:10px;color:var(--t4);margin-bottom:12px">Disable services you don't use to keep the dashboard clean.</p>
+      <div style="display:flex;flex-direction:column;gap:8px">
+        ${["chatgpt","copilot","claude","ollama","zai","gemini"].map(id => {
+          const svcNames2 = {chatgpt:"ChatGPT",copilot:"Copilot",claude:"Claude",ollama:"Ollama",zai:"Z.AI",gemini:"Gemini"};
+          const svcColors2 = {chatgpt:"var(--chatgpt)",copilot:"var(--copilot)",claude:"var(--claude)",ollama:"var(--ollama)",zai:"var(--zai)",gemini:"var(--gemini)"};
+          const disabled = S.disabledServices.has(id);
+          const color = svcColors2[id];
+          return `<div style="display:flex;align-items:center;justify-content:space-between;padding:8px 12px;border-radius:var(--rs);background:var(--bg);border:1px solid var(--b1)">
+            <div style="display:flex;align-items:center;gap:8px">
+              <div style="width:8px;height:8px;border-radius:2px;background:${color}"></div>
+              <span style="font-size:11px;font-weight:600;color:${disabled?'var(--t4)':'var(--t2)'}">${svcNames2[id]}</span>
+              ${isConfigured(id)?'<span class="ch ch-ok" style="font-size:8px;padding:1px 5px">Configured</span>':''}
+            </div>
+            <label class="toggle-sw" onclick="event.preventDefault();event.stopPropagation();toggleService('${id}')">
+              <input type="checkbox" ${!disabled?'checked':''} tabindex="-1" style="pointer-events:none">
+              <span class="track"></span>
+              <span class="thumb"></span>
+            </label>
+          </div>`;
+        }).join('')}
+      </div>
     </div>
 
     <div style="display:flex;justify-content:end;gap:6px;margin-top:18px">
