@@ -219,11 +219,11 @@ const serviceEndpoints={
 
 async function loadService(id){
   S[id].loading=true;
-  render();
+  _isApiUpdate=true;render();_isApiUpdate=false;
   const data=await api(serviceEndpoints[id]);
   S[id]={...(S[id]||{}),data,loading:false,lastRefresh:new Date()};
   if(data?.configured) S[id].wasConfigured=true;
-  render();
+  _isApiUpdate=true;render();_isApiUpdate=false;
 }
 
 async function loadConfig(){
@@ -245,7 +245,7 @@ async function loadAll(){
   // Fire all service loads in parallel - each renders independently
   const ids=["chatgpt","copilot","claude","ollama","zai","gemini"];
   ids.forEach(id=>{S[id].loading=true;});
-  render();
+  _isApiUpdate=true;render();_isApiUpdate=false;
   // Each one resolves independently
   ids.forEach(id=>{
     api(serviceEndpoints[id]).then(data=>{
@@ -259,7 +259,7 @@ async function loadAll(){
         const allDone=ids.every(i=>!S[i].loading);
         if(allDone)S.initialLoad=false;
       }
-      render();
+      _isApiUpdate=true;render();_isApiUpdate=false;
     });
   });
 }
@@ -276,12 +276,12 @@ async function refreshAll(){
   _nextRefreshAt=Date.now()+REFRESH_INTERVAL;
   const ids=configuredServices();
   ids.forEach(id=>{S[id].loading=true;});
-  render();
+  _isApiUpdate=true;render();_isApiUpdate=false;
   ids.forEach(id=>{
     api(serviceEndpoints[id]).then(data=>{
       S[id]={...(S[id]||{}),data,loading:false,lastRefresh:new Date()};
       if(data?.configured) S[id].wasConfigured=true;
-      render();
+      _isApiUpdate=true;render();_isApiUpdate=false;
       _tickRefreshBtn();
     });
   });
@@ -352,7 +352,7 @@ function toggleService(id){
   api('/api/prefs',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({disabledServices:disabledArr})}).catch(()=>{});
   // If tab was showing a now-disabled service, switch to overview
   if(S.disabledServices.has(S.tab)) S.tab='overview';
-  render();
+  render(); // _isApiUpdate=false (user action) so modal is always rebuilt correctly
 }
 
 function isOk(id){
@@ -379,8 +379,17 @@ function cardRefreshBtn(id){
 }
 
 // ━━━ RENDER ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+let _pendingRender=false;
+let _isApiUpdate=false; // true only during background API refresh renders
 function render(){
+  // Skip full rebuild if a background API update fires while modal is open.
+  // User-action renders (_isApiUpdate=false) always proceed.
+  if(S.modal && _isApiUpdate){_pendingRender=true;_tickRefreshBtn();return;}
+  _pendingRender=false;
   const _sy=window.scrollY;
+  // Preserve inner modal scroll so toggle clicks don't jump to top
+  const _modalEl=document.querySelector('.modal');
+  const _msy=_modalEl?_modalEl.scrollTop:0;
   const configured=configuredServices();
   const allIds=["chatgpt","copilot","claude","ollama","zai"];
   // Build tab list: overview + configured tabs only
@@ -441,6 +450,7 @@ function render(){
   if(S.modal==="yasb")o+=vYasbWizard();
   $("#root").innerHTML=o;
   if(_sy>0)requestAnimationFrame(()=>window.scrollTo(0,_sy));
+  if(_msy>0)requestAnimationFrame(()=>{const m=document.querySelector('.modal');if(m)m.scrollTop=_msy;});
   document.querySelectorAll('a[target="_blank"]').forEach(a=>{a.rel="noopener noreferrer"});
 }
 
