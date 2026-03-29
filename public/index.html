@@ -4,34 +4,74 @@
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"/>
 <title>AI Usage Dashboard</title>
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='32' y2='32' gradientUnits='userSpaceOnUse'%3E%3Cstop offset='0' stop-color='%23a78bfa'/%3E%3Cstop offset='.5' stop-color='%2310b981'/%3E%3Cstop offset='1' stop-color='%234f8cff'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='32' height='32' rx='8' fill='%230b0b10'/%3E%3Cpath d='M8 22V14a8 8 0 0116 0v8' stroke='url(%23g)' stroke-width='2.5' fill='none' stroke-linecap='round'/%3E%3Ccircle cx='12' cy='20' r='2' fill='%23a78bfa'/%3E%3Ccircle cx='20' cy='20' r='2' fill='%2310b981'/%3E%3Ccircle cx='16' cy='16' r='2' fill='%234f8cff'/%3E%3C/svg%3E"/>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet"/>
 <style>
 :root{
-  --bg:#060609;--s1:#0b0b10;--s2:#101016;--s3:#16161d;--s4:#1c1c25;
-  --b1:rgba(255,255,255,.04);--b2:rgba(255,255,255,.07);--b3:rgba(255,255,255,.12);
-  --t1:#ededf2;--t2:#8e8e9a;--t3:#58586a;--t4:#363643;
-  --chatgpt:#10b981;--copilot:#58a6ff;--claude:#e09145;--ollama:#a78bfa;--zai:#4f8cff;--gemini:#4285f4;
-  --red:#ef4444;--green:#22c55e;--amber:#f59e0b;
-  --r:14px;--rs:8px;
+  color-scheme:dark;
+  --bg:#07111a;--bg2:#0a1723;--s1:rgba(11,24,37,.88);--s2:rgba(15,30,45,.94);--s3:#132537;--s4:#1a3148;
+  --b1:rgba(148,163,184,.12);--b2:rgba(148,163,184,.18);--b3:rgba(226,232,240,.26);
+  --t1:#f5f7fb;--t2:#d5deea;--t3:#8ea3bb;--t4:#5e748d;
+  --chatgpt:#38d39f;--copilot:#7cb3ff;--claude:#f3a45a;--ollama:#b59cff;--zai:#60a5fa;--gemini:#7d8cff;
+  --red:#f87171;--green:#4ade80;--amber:#fbbf24;
+  --ring:rgba(125,140,255,.55);
+  --shadow:0 28px 80px rgba(2,6,23,.34);
+  --r:22px;--rs:12px;
 }
 *{box-sizing:border-box;margin:0;padding:0}
-body{font-family:"Inter",system-ui,sans-serif;background:var(--bg);color:var(--t1);min-height:100vh;overflow-x:hidden;-webkit-font-smoothing:antialiased}
-.mono{font-family:"JetBrains Mono",monospace}
+html{scroll-behavior:smooth}
+body{
+  font-family:"Manrope",system-ui,sans-serif;
+  background:
+    radial-gradient(circle at top left, rgba(56,211,159,.12), transparent 28%),
+    radial-gradient(circle at top right, rgba(125,140,255,.14), transparent 32%),
+    linear-gradient(180deg, var(--bg2), var(--bg));
+  color:var(--t1);
+  min-height:100vh;
+  overflow-x:hidden;
+  -webkit-font-smoothing:antialiased
+}
+body::before{
+  content:"";
+  position:fixed;
+  inset:0;
+  pointer-events:none;
+  background:
+    linear-gradient(rgba(255,255,255,.025) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255,255,255,.025) 1px, transparent 1px);
+  background-size:32px 32px;
+  mask-image:linear-gradient(180deg, rgba(0,0,0,.45), transparent 78%);
+  opacity:.26;
+}
+.mono{font-family:"IBM Plex Mono",monospace}
 ::-webkit-scrollbar{width:3px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:var(--s4);border-radius:2px}
 
-.c{background:var(--s1);border:1px solid var(--b1);border-radius:var(--r);position:relative;overflow:hidden;transition:border-color .2s,box-shadow .2s,transform .2s}
-.c:hover{border-color:var(--b2);box-shadow:0 4px 24px rgba(0,0,0,.2)}
+.skip-link{
+  position:fixed;left:16px;top:-48px;z-index:500;
+  padding:10px 14px;border-radius:999px;background:var(--t1);color:#0b1320;
+  font-size:12px;font-weight:800;text-decoration:none;transition:top .2s ease
+}
+.skip-link:focus{top:16px}
+.c{
+  background:linear-gradient(180deg, rgba(13,27,41,.88), rgba(10,22,34,.92));
+  border:1px solid var(--b1);
+  border-radius:var(--r);
+  position:relative;
+  overflow:hidden;
+  box-shadow:var(--shadow);
+  transition:border-color .2s,box-shadow .2s,transform .2s,background .2s
+}
+.c:hover{border-color:var(--b2);box-shadow:0 30px 90px rgba(2,6,23,.42)}
 .c>.accent{position:absolute;top:0;left:0;right:0;height:1px}
-.cp{padding:20px}
+.cp{padding:22px}
 
 .btn{display:inline-flex;align-items:center;gap:5px;padding:7px 14px;border-radius:var(--rs);
-  font:600 10.5px/1 "Inter",sans-serif;letter-spacing:.3px;border:1px solid var(--b2);
-  background:var(--s2);color:var(--t2);cursor:pointer;transition:all .15s;text-decoration:none;white-space:nowrap}
-.btn:hover{border-color:var(--b3);color:var(--t1);background:var(--s3);transform:translateY(-1px)}
+  font:700 10.5px/1 "Manrope",sans-serif;letter-spacing:.28px;border:1px solid var(--b2);
+  background:rgba(15,30,45,.84);color:var(--t2);cursor:pointer;transition:all .15s;text-decoration:none;white-space:nowrap}
+.btn:hover{border-color:var(--b3);color:var(--t1);background:rgba(26,49,72,.95);transform:translateY(-1px)}
 .btn:active{transform:translateY(0)}
-.btn-p{background:rgba(255,255,255,.06);color:var(--t1);border-color:var(--b3)}
+.btn-p{background:linear-gradient(135deg, rgba(125,140,255,.18), rgba(56,211,159,.12));color:var(--t1);border-color:rgba(125,140,255,.28)}
 
-.ch{display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:20px;font:600 9.5px/1 "Inter",sans-serif;letter-spacing:.2px}
+.ch{display:inline-flex;align-items:center;gap:4px;padding:4px 10px;border-radius:999px;font:700 9px/1 "Manrope",sans-serif;letter-spacing:.24px}
 .ch-ok{background:rgba(34,197,94,.06);border:1px solid rgba(34,197,94,.1);color:#4ade80}
 .ch-err{background:rgba(239,68,68,.05);border:1px solid rgba(239,68,68,.1);color:#f87171}
 .ch-off{background:var(--s3);border:1px solid var(--b1);color:var(--t4)}
@@ -45,11 +85,15 @@ body{font-family:"Inter",system-ui,sans-serif;background:var(--bg);color:var(--t
 .pbar{height:6px;border-radius:3px;background:var(--s4);overflow:hidden}
 .pfill{height:100%;border-radius:3px;transition:width .7s cubic-bezier(.16,1,.3,1)}
 
-.lbl{font:700 8.5px/1 "Inter",sans-serif;text-transform:uppercase;letter-spacing:2px;color:var(--t4)}
+.lbl{font:800 8.5px/1 "Manrope",sans-serif;text-transform:uppercase;letter-spacing:2px;color:var(--t4)}
 
-.tabs{display:flex;gap:1px;border-bottom:1px solid var(--b1)}
-.tab{padding:9px 15px;font:500 11.5px/1 "Inter",sans-serif;color:var(--t3);cursor:pointer;border:none;background:none;position:relative;transition:color .15s}
-.tab:hover{color:var(--t2)}.tab.on{color:var(--t1);font-weight:700}
+.tabs{display:flex;gap:8px;flex-wrap:wrap}
+.tab{
+  padding:10px 14px;font:700 11px/1 "Manrope",sans-serif;color:var(--t3);cursor:pointer;border:1px solid transparent;
+  background:transparent;position:relative;transition:color .15s,background .15s,border-color .15s;border-radius:999px
+}
+.tab:hover{color:var(--t2);background:rgba(255,255,255,.03);border-color:rgba(148,163,184,.08)}
+.tab.on{color:var(--t1);font-weight:800;background:rgba(255,255,255,.05);border-color:rgba(148,163,184,.18)}
 .tab.on::after{content:"";position:absolute;bottom:-1px;left:10px;right:10px;height:2px;border-radius:1px}
 
 .gauge{position:relative;display:inline-flex;align-items:center;justify-content:center}
@@ -77,12 +121,13 @@ body{font-family:"Inter",system-ui,sans-serif;background:var(--bg);color:var(--t
 .card-refresh:hover{border-color:var(--b3);color:var(--t1);background:var(--s3)}
 .card-refresh.spinning svg{animation:spin .6s linear infinite}
 
-.ov{position:fixed;inset:0;z-index:200;background:rgba(0,0,0,.6);backdrop-filter:blur(8px);display:flex;align-items:center;justify-content:center}
-.modal{background:var(--s1);border:1px solid var(--b2);border-radius:16px;padding:24px;width:480px;max-width:92vw;max-height:90vh;overflow-y:auto}
+.ov{position:fixed;inset:0;z-index:200;background:rgba(2,6,23,.68);backdrop-filter:blur(18px);display:flex;align-items:center;justify-content:center;padding:20px}
+.modal{background:linear-gradient(180deg, rgba(10,22,34,.98), rgba(8,18,29,.98));border:1px solid var(--b2);border-radius:24px;padding:24px;width:480px;max-width:92vw;max-height:90vh;overflow-y:auto;box-shadow:0 36px 110px rgba(2,6,23,.55)}
 
-input[type="text"],input[type="password"]{width:100%;padding:8px 12px;border-radius:var(--rs);border:1px solid var(--b2);background:var(--bg);color:var(--t1);font:11px "JetBrains Mono",monospace;outline:none;transition:border .15s}
-input:focus{border-color:var(--b3)}
-label{display:block;font:600 10.5px/1 "Inter",sans-serif;color:var(--t2);margin-bottom:5px}
+input[type="text"],input[type="password"]{width:100%;padding:10px 12px;border-radius:14px;border:1px solid var(--b2);background:rgba(6,17,26,.84);color:var(--t1);font:11px "IBM Plex Mono",monospace;outline:none;transition:border .15s,box-shadow .15s,background .15s}
+input::placeholder{color:var(--t4)}
+input:focus{border-color:var(--b3);box-shadow:0 0 0 4px rgba(125,140,255,.14);background:rgba(9,21,33,.98)}
+label{display:block;font:700 10.5px/1 "Manrope",sans-serif;color:var(--t2);margin-bottom:5px}
 .hint{font-size:9.5px;color:var(--t4);margin-top:3px;line-height:1.5}.hint a{color:var(--ollama);text-decoration:underline}
 
 .g2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
@@ -91,14 +136,14 @@ label{display:block;font:600 10.5px/1 "Inter",sans-serif;color:var(--t2);margin-
 @media(max-width:800px){.g3,.g4{grid-template-columns:1fr 1fr}}
 @media(max-width:550px){.g2,.g3,.g4{grid-template-columns:1fr}}
 
-.stat{padding:14px;border-radius:var(--rs);background:var(--bg);border:1px solid var(--b1);text-align:center}
-.stat .sv{font-family:"JetBrains Mono";font-size:22px;font-weight:700;letter-spacing:-.5px;line-height:1}
-.stat .sl{font:700 8px/1 "Inter",sans-serif;text-transform:uppercase;letter-spacing:1.5px;color:var(--t4);margin-top:5px}
+.stat{padding:16px;border-radius:18px;background:rgba(6,17,26,.78);border:1px solid rgba(148,163,184,.11);text-align:center}
+.stat .sv{font-family:"IBM Plex Mono";font-size:22px;font-weight:700;letter-spacing:-.5px;line-height:1}
+.stat .sl{font:800 8px/1 "Manrope",sans-serif;text-transform:uppercase;letter-spacing:1.5px;color:var(--t4);margin-top:5px}
 
-.dr{display:flex;align-items:center;justify-content:space-between;padding:8px 12px;border-radius:var(--rs);background:var(--bg);border:1px solid var(--b1)}
+.dr{display:flex;align-items:center;justify-content:space-between;padding:10px 12px;border-radius:16px;background:rgba(6,17,26,.78);border:1px solid rgba(148,163,184,.11)}
 
 /* Overview grid - responsive */
-.overview-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px}
+.overview-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:16px}
 @media(max-width:620px){.overview-grid{grid-template-columns:1fr}}
 
 /* Empty state */
@@ -131,7 +176,7 @@ label{display:block;font:600 10.5px/1 "Inter",sans-serif;color:var(--t2);margin-
 /* Reset time pill — shown inline on cards */
 .reset-pill{display:inline-flex;align-items:center;gap:3px;padding:2px 7px;border-radius:20px;
   background:rgba(255,255,255,.04);border:1px solid var(--b1);
-  font:600 9px "JetBrains Mono",monospace;color:var(--t3);letter-spacing:.3px;white-space:nowrap}
+  font:600 9px "IBM Plex Mono",monospace;color:var(--t3);letter-spacing:.3px;white-space:nowrap}
 .reset-pill .ri{opacity:.5;font-size:8px}
 
 /* Dual percentage display */
@@ -148,8 +193,82 @@ label{display:block;font:600 10.5px/1 "Inter",sans-serif;color:var(--t2);margin-
 /* Card stat grid — compact */
 .csgrid{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:8px}
 .csbox{padding:8px 10px;border-radius:8px;background:var(--bg);border:1px solid var(--b1)}
-.csbox .csv{font-family:"JetBrains Mono";font-size:15px;font-weight:700;line-height:1}
-.csbox .csl{font:600 8px "Inter",sans-serif;text-transform:uppercase;letter-spacing:1.5px;color:var(--t4);margin-top:3px}
+.csbox .csv{font-family:"IBM Plex Mono";font-size:15px;font-weight:700;line-height:1}
+.csbox .csl{font:700 8px "Manrope",sans-serif;text-transform:uppercase;letter-spacing:1.5px;color:var(--t4);margin-top:3px}
+
+button:focus-visible,a:focus-visible,input:focus-visible,.tab:focus-visible,.card-refresh:focus-visible,[role="button"]:focus-visible{
+  outline:none;
+  box-shadow:0 0 0 4px var(--ring);
+}
+
+.app-shell{position:relative;padding:32px 18px 60px}
+.app-frame{max-width:1280px;margin:0 auto}
+.hero-bar{
+  display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap;
+  padding:28px 28px 22px;border-radius:28px;
+  background:
+    radial-gradient(circle at top right, rgba(125,140,255,.12), transparent 32%),
+    linear-gradient(180deg, rgba(14,29,44,.9), rgba(9,20,31,.92));
+  border:1px solid rgba(148,163,184,.14);
+  box-shadow:0 42px 110px rgba(2,6,23,.42)
+}
+.hero-copy{max-width:700px}
+.topline{display:inline-flex;align-items:center;gap:8px;padding:7px 12px;border-radius:999px;background:rgba(255,255,255,.04);border:1px solid rgba(148,163,184,.12);font-size:10px;font-weight:800;letter-spacing:.18em;text-transform:uppercase;color:var(--t3)}
+.hero-copy h1{font-size:34px;line-height:1.02;letter-spacing:-.05em;margin-top:16px;max-width:10ch}
+.hero-copy p{font-size:14px;line-height:1.75;color:var(--t3);margin-top:12px;max-width:62ch}
+.hero-actions{display:flex;flex-direction:column;align-items:flex-end;gap:10px;min-width:260px}
+.hero-actions .btn-row{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}
+.status-strip{
+  display:flex;align-items:center;gap:8px;flex-wrap:wrap;
+  padding:10px 12px;border-radius:16px;background:rgba(255,255,255,.03);border:1px solid rgba(148,163,184,.1);
+  color:var(--t3);font-size:11px
+}
+.nav-strip{
+  margin-top:14px;padding:12px 14px;border-radius:20px;
+  background:rgba(10,20,31,.78);border:1px solid rgba(148,163,184,.1)
+}
+.overview-stack{display:flex;flex-direction:column;gap:16px}
+.summary-grid,.overview-actions{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:16px}
+.summary-card,.action-card{
+  padding:18px;border-radius:22px;background:rgba(10,20,31,.82);border:1px solid rgba(148,163,184,.1);box-shadow:var(--shadow)
+}
+.summary-card .eyebrow,.action-card .eyebrow{font-size:10px;font-weight:800;letter-spacing:.18em;text-transform:uppercase;color:var(--t4)}
+.summary-card .value{margin-top:12px;font-size:30px;line-height:1;font-weight:800;letter-spacing:-.05em}
+.summary-card .meta{margin-top:8px;font-size:12px;line-height:1.6;color:var(--t3)}
+.section-head{display:flex;justify-content:space-between;align-items:flex-end;gap:12px;flex-wrap:wrap}
+.section-head h2{font-size:18px;letter-spacing:-.04em}
+.section-head p{font-size:12px;line-height:1.7;color:var(--t3);max-width:56ch}
+.section-note{font-size:11px;color:var(--t4)}
+.service-card{display:flex;flex-direction:column;gap:16px;min-height:270px}
+.service-card-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}
+.service-card-title{display:flex;flex-direction:column;gap:6px}
+.service-card-title h3{font-size:18px;letter-spacing:-.04em}
+.service-card-title p{font-size:11px;line-height:1.6;color:var(--t3)}
+.service-card-meta{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.mini-chart{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));align-items:end;gap:6px;height:62px}
+.mini-chart span{display:block;border-radius:999px 999px 6px 6px;background:linear-gradient(180deg, rgba(255,255,255,.92), rgba(255,255,255,.16));opacity:.7}
+.service-footer{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-top:auto}
+.service-footer .meta-line{font-size:11px;color:var(--t4)}
+.inline-actions{display:flex;gap:8px;flex-wrap:wrap}
+.action-card p{font-size:12px;line-height:1.7;color:var(--t3);margin-top:10px}
+.action-card .btn{margin-top:14px}
+
+@media(max-width:960px){
+  .summary-grid,.overview-actions{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .hero-copy h1{font-size:30px}
+}
+@media(max-width:700px){
+  .app-shell{padding:18px 12px 36px}
+  .hero-bar{padding:22px 18px 18px}
+  .hero-actions{align-items:stretch;min-width:100%}
+  .hero-actions .btn-row{justify-content:flex-start}
+  .summary-grid,.overview-actions{grid-template-columns:1fr}
+  .service-card{min-height:auto}
+}
+
+@media (prefers-reduced-motion: reduce){
+  *,*::before,*::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}
+}
 </style>
 </head>
 <body>
@@ -206,6 +325,18 @@ function pbar(pct,color,h=6){
 function refreshIcon(){
   return`<svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M1 1v5h5"/><path d="M3.51 10a6 6 0 1 0 .34-5.37L1 6"/></svg>`;
 }
+
+const SERVICE_IDS=["chatgpt","copilot","claude","ollama","zai","gemini"];
+const SERVICE_META={
+  chatgpt:{name:"ChatGPT",color:"var(--chatgpt)",tag:"Session + weekly"},
+  copilot:{name:"Copilot",color:"var(--copilot)",tag:"Premium quota"},
+  claude:{name:"Claude",color:"var(--claude)",tag:"5h + 7d limits"},
+  ollama:{name:"Ollama",color:"var(--ollama)",tag:"Cloud + local"},
+  zai:{name:"Z.AI",color:"var(--zai)",tag:"Token + MCP"},
+  gemini:{name:"Gemini",color:"var(--gemini)",tag:"Project rate limits"},
+};
+function serviceMeta(id){return SERVICE_META[id]||{name:id,color:"var(--t2)",tag:"Service"}}
+function openTab(id){S.tab=id;render()}
 
 // ━━━ INDIVIDUAL LOADERS ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 const serviceEndpoints={
@@ -360,6 +491,118 @@ function isOk(id){
   return d.configured&&!d.error;
 }
 
+function servicePriorityPct(id){
+  const d=S[id]?.data||{};
+  if(!d?.configured) return null;
+  if(id==="chatgpt"){
+    return d.usage?.rate_limit?.primary_window?.used_percent ?? null;
+  }
+  if(id==="copilot"){
+    const prem=d.quotas?.premium_interactions;
+    return prem ? 100-(prem.percent_remaining||100) : null;
+  }
+  if(id==="claude"){
+    return d.usage?.five_hour?.utilization ?? d.usage?.usage?.five_hour?.utilization ?? null;
+  }
+  if(id==="ollama"){
+    return d.usage?.real?.session_pct ?? null;
+  }
+  if(id==="zai"){
+    return d.quota?.tokenLimit?.percentage ?? null;
+  }
+  if(id==="gemini"){
+    const model=d.selectedModel;
+    if(!model) return null;
+    const rpd=model.rpd?.limit>0 ? (model.rpd.used||0)/model.rpd.limit*100 : 0;
+    const rpm=model.rpm?.pct ?? 0;
+    const tpm=model.tpm?.pct ?? 0;
+    return Math.max(rpd||0,rpm||0,tpm||0);
+  }
+  return null;
+}
+
+function serviceSecondaryPct(id){
+  const d=S[id]?.data||{};
+  if(!d?.configured) return null;
+  if(id==="chatgpt"){
+    return d.usage?.rate_limit?.secondary_window?.used_percent ?? null;
+  }
+  if(id==="claude"){
+    return d.usage?.seven_day?.utilization ?? d.usage?.usage?.seven_day?.utilization ?? null;
+  }
+  if(id==="ollama"){
+    return d.usage?.real?.weekly_pct ?? null;
+  }
+  if(id==="zai"){
+    return d.quota?.mcpLimit?.percentage ?? null;
+  }
+  return null;
+}
+
+function serviceResetLabel(id){
+  const d=S[id]?.data||{};
+  if(id==="chatgpt"){
+    return fmtDur(d.usage?.rate_limit?.primary_window?.reset_after_seconds);
+  }
+  if(id==="copilot"){
+    return d.quotaReset || "monthly";
+  }
+  if(id==="claude"){
+    return timeUntil(d.usage?.five_hour?.resets_at);
+  }
+  if(id==="ollama"){
+    return timeUntil(d.usage?.real?.session_resets_at || d.usage?.five_hour?.resets_at);
+  }
+  if(id==="gemini"){
+    const now=new Date();
+    const nextMidnight=new Date(Date.UTC(now.getUTCFullYear(),now.getUTCMonth(),now.getUTCDate()+1));
+    return fmtDur((nextMidnight-now)/1000);
+  }
+  return null;
+}
+
+function serviceAttentionState(id){
+  const d=S[id]?.data||{};
+  if(!d?.configured) return "idle";
+  if(d.error) return "error";
+  const pct=Math.max(servicePriorityPct(id)||0, serviceSecondaryPct(id)||0);
+  if(d.stale) return "stale";
+  if(pct>=85) return "critical";
+  if(pct>=65) return "watch";
+  return "healthy";
+}
+
+function serviceSpark(id){
+  const primary=clamp(servicePriorityPct(id)||0,0,100);
+  const secondary=clamp(serviceSecondaryPct(id)??primary*0.82,0,100);
+  const values=[
+    Math.max(12,primary*.4),
+    Math.max(16,primary*.48),
+    Math.max(18,secondary*.4),
+    Math.max(20,primary*.56),
+    Math.max(16,secondary*.46),
+    Math.max(22,primary*.63),
+    Math.max(18,secondary*.52),
+    Math.max(24,primary*.72),
+    Math.max(20,secondary*.58),
+    Math.max(28,primary*.84),
+    Math.max(24,secondary*.68),
+    Math.max(30,primary*.92),
+  ];
+  return`<div class="mini-chart" aria-hidden="true">${values.map(v=>`<span style="height:${Math.min(v,60)}px"></span>`).join("")}</div>`;
+}
+
+function overviewMetrics(ids){
+  const total=ids.length;
+  const live=ids.filter(id=>isOk(id)).length;
+  const attention=ids.filter(id=>["watch","critical","error","stale"].includes(serviceAttentionState(id))).length;
+  const loading=SERVICE_IDS.filter(id=>S[id]?.loading).length;
+  const leader=ids
+    .map(id=>({id,pct:servicePriorityPct(id)||0}))
+    .sort((a,b)=>b.pct-a.pct)[0]||null;
+  return { total, live, attention, loading, leader };
+}
+
 function isConfigured(id){
   const d=S[id]?.data;
   return d&&d.configured;
@@ -375,7 +618,7 @@ function statusChip(id){
 
 function cardRefreshBtn(id){
   const spinning=S[id]?.loading?"spinning":"";
-  return`<button class="card-refresh ${spinning}" onclick="refreshService('${id}',event)" title="Refresh ${id}">${refreshIcon()}</button>`;
+  return`<button class="card-refresh ${spinning}" onclick="refreshService('${id}',event)" title="Refresh ${id}" aria-label="Refresh ${serviceMeta(id).name}">${refreshIcon()}</button>`;
 }
 
 // ━━━ RENDER ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -391,59 +634,54 @@ function render(){
   const _modalEl=document.querySelector('.modal');
   const _msy=_modalEl?_modalEl.scrollTop:0;
   const configured=configuredServices();
-  const allIds=["chatgpt","copilot","claude","ollama","zai"];
-  // Build tab list: overview + configured tabs only
   const tabList=["overview",...configured];
+  const metrics=overviewMetrics(configured);
+  const loadingIds=SERVICE_IDS.filter(id=>S[id]?.loading);
+  const anyLoading=loadingIds.length>0;
+  const secs=Math.max(0,Math.round((_nextRefreshAt-Date.now())/1000));
+  const bucketed=Math.ceil(secs/10)*10;
+  const countdown=bucketed<=0?"now":bucketed<60?`${bucketed}s`:`${Math.floor(bucketed/60)}m ${bucketed%60>0?bucketed%60+"s":""}`.trim();
+  const heroTitle=configured.length
+    ? "A calmer control room for AI usage."
+    : "See every limit before it surprises you.";
+  const heroCopy=configured.length
+    ? "Track active limits, reset windows, and service health in one restrained view. The layout stays dense where it should and quiet everywhere else."
+    : "Connect the services you use, keep the dashboard focused, and surface quota pressure before it interrupts work or burns time.";
 
-  let o=`<div style="max-width:1020px;margin:0 auto;padding:20px 16px 50px">`;
-
-  // Header
-  o+=`<header class="anim" style="margin-bottom:20px">
-    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px">
-      <div style="display:flex;align-items:center;gap:10px">
-        <div style="width:34px;height:34px;border-radius:10px;background:linear-gradient(135deg,rgba(167,139,250,.12),rgba(16,185,129,.08));border:1px solid var(--b2);display:flex;align-items:center;justify-content:center">
-          <svg width="16" height="16" viewBox="0 0 32 32" fill="none"><path d="M8 22V14a8 8 0 0116 0v8" stroke="url(#hg)" stroke-width="2.5" stroke-linecap="round"/><circle cx="12" cy="20" r="2" fill="#a78bfa"/><circle cx="20" cy="20" r="2" fill="#10b981"/><circle cx="16" cy="16" r="2" fill="#4f8cff"/><defs><linearGradient id="hg" x1="8" y1="14" x2="24" y2="22" gradientUnits="userSpaceOnUse"><stop stop-color="#a78bfa"/><stop offset=".5" stop-color="#10b981"/><stop offset="1" stop-color="#4f8cff"/></linearGradient></defs></svg>
-        </div>
-        <div>
-          <h1 style="font-size:15px;font-weight:800;letter-spacing:-.3px">AI Usage Dashboard</h1>
-          <p style="font-size:10px;color:var(--t4);margin-top:1px">${configured.length} service${configured.length!==1?"s":""} connected</p>
-        </div>
+  let o=`<a class="skip-link" href="#main-content">Skip to content</a><div class="app-shell"><div class="app-frame">`;
+  o+=`<header class="anim">
+    <div class="hero-bar">
+      <div class="hero-copy">
+        <span class="topline">Usage Control Center</span>
+        <h1>${heroTitle}</h1>
+        <p>${heroCopy}</p>
       </div>
-      <div>
-        <div style="display:flex;gap:6px">
-          <button class="btn" id="refresh-btn" onclick="refreshAll()">${(()=>{const anyLoading=["chatgpt","copilot","claude","ollama","zai","gemini"].some(id=>S[id]?.loading);if(anyLoading)return`<span class="spin" style="display:inline-block;width:10px;height:10px;border:1.5px solid var(--t4);border-top-color:var(--t1);border-radius:50%;vertical-align:middle;margin-right:5px"></span>Updating...`;const secs=Math.max(0,Math.round((_nextRefreshAt-Date.now())/1000));const bucketed=Math.ceil(secs/10)*10;const countdown=bucketed<=0?'now':bucketed<60?`${bucketed}s`:`${Math.floor(bucketed/60)}m ${bucketed%60>0?bucketed%60+"s":''}`.trim();const cdColor=bucketed<20?"var(--amber)":"var(--t4)";return`Refresh All<span style="font-size:9px;color:${cdColor};margin-left:6px;font-weight:400;font-variant-numeric:tabular-nums">${countdown}</span>`;})()}</button>
+      <div class="hero-actions">
+        <div class="btn-row">
+          <button class="btn" id="refresh-btn" onclick="refreshAll()" aria-label="Refresh all services">${anyLoading?`<span class="spin" style="display:inline-block;width:10px;height:10px;border:1.5px solid var(--t4);border-top-color:var(--t1);border-radius:50%;vertical-align:middle;margin-right:5px"></span>Updating...`:`Refresh All<span style="font-size:9px;color:${bucketed<20?"var(--amber)":"var(--t4)"};margin-left:6px;font-weight:500;font-variant-numeric:tabular-nums">${countdown}</span>`}</button>
           <button class="btn" onclick="S.modal='yasb';render()">YASB Widgets</button>
-          <button class="btn" onclick="S.modal='config';render()">Settings</button>
+          <button class="btn btn-p" onclick="S.modal='config';render()">Settings</button>
         </div>
-        ${(()=>{
-          const allIds=["chatgpt","copilot","claude","ollama","zai","gemini"];
-          const loadingIds=allIds.filter(id=>S[id]?.loading);
-          if(loadingIds.length===0)return'';
-          const svcNames={chatgpt:"ChatGPT",copilot:"Copilot",claude:"Claude",ollama:"Ollama",zai:"Z.AI",gemini:"Gemini"};
-          return`<div class="updating-bar" style="margin-top:8px">
-            <div class="spin-sm"></div>
-            <span>Updating: </span>
-            <span id="loading-bar" style="color:var(--t1);font-weight:600">${loadingIds.map(id=>svcNames[id]).join(', ')}</span>
-          </div>`;
-        })()}
+        <div class="status-strip">
+          <span style="color:var(--t2);font-weight:700">${metrics.total}</span>
+          <span>active service${metrics.total!==1?"s":""}</span>
+          <span style="width:4px;height:4px;border-radius:50%;background:var(--b3)"></span>
+          <span id="loading-bar" style="color:var(--t2);font-weight:700">${anyLoading?loadingIds.map(id=>serviceMeta(id).name).join(", "):`${metrics.live} healthy · ${metrics.attention} need attention`}</span>
+        </div>
       </div>
     </div>
-    <nav class="tabs" style="margin-top:14px">
-      ${tabList.map(t=>{
-        const names={overview:"Overview",chatgpt:"ChatGPT",copilot:"Copilot",claude:"Claude",ollama:"Ollama",zai:"Z.AI",gemini:"Gemini"};
-        const cols={overview:"#fff",chatgpt:"var(--chatgpt)",copilot:"var(--copilot)",claude:"var(--claude)",ollama:"var(--ollama)",zai:"var(--zai)",gemini:"var(--gemini)"};
-        return`<button class="tab${S.tab===t?" on":""}" onclick="S.tab='${t}';render()">
-          ${names[t]||t}${S.tab===t?`<style>.tab.on::after{background:${cols[t]||"#fff"}}</style>`:""}
-        </button>`;
-      }).join("")}
-    </nav>
+    <div class="nav-strip">
+      <nav class="tabs" aria-label="Service views" role="tablist">
+        ${tabList.map(t=>`<button class="tab${S.tab===t?" on":""}" onclick="openTab('${t}')" role="tab" aria-selected="${S.tab===t}" aria-controls="panel-${t}" id="tab-${t}">${t==="overview"?"Overview":serviceMeta(t).name}</button>`).join("")}
+      </nav>
+    </div>
   </header>`;
 
   // If tab is not in tabList (e.g. service got unconfigured), fall back to overview
   if(!tabList.includes(S.tab))S.tab="overview";
 
   const views={overview:vOverview,chatgpt:vChatGPT,copilot:vCopilot,claude:vClaude,ollama:vOllama,zai:vZAI,gemini:vGemini};
-  o+=(views[S.tab]||vOverview)();
+  o+=`<main id="main-content" style="margin-top:18px" role="tabpanel" aria-labelledby="tab-${S.tab}" tabindex="-1">${(views[S.tab]||vOverview)()}</main>`;
 
   o+=`</div>`;
   if(S.modal==="config")o+=vSettings();
@@ -457,36 +695,112 @@ function render(){
 // ━━━ OVERVIEW ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 function vOverview(){
   const configured=configuredServices();
+  const metrics=overviewMetrics(configured);
 
   if(configured.length===0){
-    // Nothing configured yet - show welcome
-    return`<div class="c anim empty-state">
-      <div class="icon" style="background:linear-gradient(135deg,rgba(167,139,250,.1),rgba(16,185,129,.08));border:1px solid var(--b2);border-radius:16px;opacity:.6">
+    return`<section class="overview-stack">
+      <div class="c cp anim empty-state">
+      <div class="icon" style="background:linear-gradient(135deg,rgba(125,140,255,.14),rgba(56,211,159,.12));border:1px solid var(--b2);border-radius:18px;opacity:.9">
         <svg width="22" height="22" viewBox="0 0 32 32" fill="none"><path d="M8 22V14a8 8 0 0116 0v8" stroke="url(#eg)" stroke-width="2.5" stroke-linecap="round"/><circle cx="12" cy="20" r="2" fill="#a78bfa"/><circle cx="20" cy="20" r="2" fill="#10b981"/><circle cx="16" cy="16" r="2" fill="#4f8cff"/><defs><linearGradient id="eg" x1="8" y1="14" x2="24" y2="22" gradientUnits="userSpaceOnUse"><stop stop-color="#a78bfa"/><stop offset=".5" stop-color="#10b981"/><stop offset="1" stop-color="#4f8cff"/></linearGradient></defs></svg>
       </div>
-      <h3 style="font-size:15px;font-weight:700;margin-bottom:6px">Welcome to AI Usage Dashboard</h3>
-      <p style="font-size:11px;color:var(--t3);line-height:1.6;max-width:360px;margin:0 auto 20px">Track your AI service usage in real-time. Connect your first service to get started.</p>
-      <button class="btn btn-p" onclick="S.modal='config';render()">Open Settings</button>
-    </div>`;
+      <h3 style="font-size:24px;font-weight:800;letter-spacing:-.04em;margin-bottom:8px">Welcome to a clearer usage dashboard</h3>
+      <p style="font-size:13px;color:var(--t3);line-height:1.8;max-width:560px;margin:0 auto 24px">Connect the services you care about, keep the rest hidden, and surface pressure points with a layout that is readable at a glance instead of noisy by default.</p>
+      <div class="inline-actions" style="justify-content:center">
+        <button class="btn btn-p" onclick="S.modal='config';render()">Open Settings</button>
+        <button class="btn" onclick="S.modal='yasb';render()">Prepare YASB Widgets</button>
+      </div>
+      </div>
+      <div class="overview-actions anim a1">
+        <div class="action-card">
+          <div class="eyebrow">Connect</div>
+          <h2 style="font-size:18px;letter-spacing:-.04em;margin-top:10px">Add only the services you use.</h2>
+          <p>Keep the dashboard crisp by enabling real providers and disabling the rest. Hidden services stay out of the app and the YASB summary.</p>
+          <button class="btn" onclick="S.modal='config';render()">Manage Providers</button>
+        </div>
+        <div class="action-card">
+          <div class="eyebrow">Install</div>
+          <h2 style="font-size:18px;letter-spacing:-.04em;margin-top:10px">Carry the same signal into YASB.</h2>
+          <p>Generate grouped or compact widgets, preview the output, and keep the bar consistent with the dashboard state.</p>
+          <button class="btn" onclick="S.modal='yasb';render()">Open Widget Wizard</button>
+        </div>
+      </div>
+    </section>`;
   }
 
-  let o=`<div class="overview-grid">`;
+  let o=`<section class="overview-stack">
+    <div class="summary-grid anim">
+      <div class="summary-card">
+        <div class="eyebrow">Connected</div>
+        <div class="value">${metrics.total}</div>
+        <div class="meta">Services currently visible in the dashboard after your hide rules are applied.</div>
+      </div>
+      <div class="summary-card">
+        <div class="eyebrow">Healthy</div>
+        <div class="value" style="color:var(--green)">${metrics.live}</div>
+        <div class="meta">Providers responding cleanly and currently under their main usage thresholds.</div>
+      </div>
+      <div class="summary-card">
+        <div class="eyebrow">Attention</div>
+        <div class="value" style="color:${metrics.attention?"var(--amber)":"var(--t2)"}">${metrics.attention}</div>
+        <div class="meta">Services that are stale, errored, or moving into watch or critical range.</div>
+      </div>
+      <div class="summary-card">
+        <div class="eyebrow">Highest Usage</div>
+        <div class="value" style="font-size:24px">${metrics.leader?serviceMeta(metrics.leader.id).name:"--"}</div>
+        <div class="meta">${metrics.leader?`${Math.round(metrics.leader.pct)}% of the primary window in use.`:"No active usage data yet."}</div>
+      </div>
+    </div>
+    <div class="section-head anim a1">
+      <div>
+        <h2>Service health</h2>
+        <p>Each card summarizes the main quota pressure, secondary window where available, reset timing, and a compact visual trend so you can decide where to look next.</p>
+      </div>
+      <div class="section-note">Primary path: overview first, provider detail second.</div>
+    </div>
+    <div class="overview-grid">`;
   configured.forEach((id,i)=>{
     o+=overviewCard(id,i);
   });
-  o+=`</div>`;
+  o+=`</div>
+    <div class="overview-actions anim a2">
+      <div class="action-card">
+        <div class="eyebrow">Refresh</div>
+        <h2 style="font-size:18px;letter-spacing:-.04em;margin-top:10px">Pull a clean snapshot.</h2>
+        <p>Use a full refresh when you need current numbers before making a quota decision or troubleshooting a stale provider.</p>
+        <button class="btn" onclick="refreshAll()">Refresh Everything</button>
+      </div>
+      <div class="action-card">
+        <div class="eyebrow">Settings</div>
+        <h2 style="font-size:18px;letter-spacing:-.04em;margin-top:10px">Tighten the dashboard scope.</h2>
+        <p>Update tokens, validate sessions, and hide services you no longer want on-screen or in the YASB feed.</p>
+        <button class="btn" onclick="S.modal='config';render()">Open Settings</button>
+      </div>
+      <div class="action-card">
+        <div class="eyebrow">Desktop</div>
+        <h2 style="font-size:18px;letter-spacing:-.04em;margin-top:10px">Bring summary data to the bar.</h2>
+        <p>Preview widget output, switch grouped versus compact layouts, and keep the desktop layer visually aligned with the dashboard.</p>
+        <button class="btn" onclick="S.modal='yasb';render()">Configure YASB</button>
+      </div>
+      <div class="action-card">
+        <div class="eyebrow">Refresh Cadence</div>
+        <h2 style="font-size:18px;letter-spacing:-.04em;margin-top:10px">Automatic background updates.</h2>
+        <p>The app refreshes every two minutes and keeps last-known data visible so the interface remains understandable during slower API calls.</p>
+        <div class="btn" aria-hidden="true">120s interval</div>
+      </div>
+    </div>
+  </section>`;
   return o;
 }
 
 function overviewCard(id,index){
-  const names={chatgpt:"ChatGPT",copilot:"Copilot",claude:"Claude",ollama:"Ollama",zai:"Z.AI",gemini:"Gemini"};
-  const colors={chatgpt:"var(--chatgpt)",copilot:"var(--copilot)",claude:"var(--claude)",ollama:"var(--ollama)",zai:"var(--zai)",gemini:"var(--gemini)"};
-  const color=colors[id];
-  const name=names[id];
+  const meta=serviceMeta(id);
+  const color=meta.color;
+  const name=meta.name;
   const svc=S[id];
   const loading=svc?.loading;
   const d=svc?.data||{};
   const isStale = d?.stale === true;
+  const attention=serviceAttentionState(id);
 
   let content="";
 
@@ -519,7 +833,7 @@ function overviewCard(id,index){
     content=`<div style="font-size:10px;color:var(--red);opacity:.7">${h((d.error||"Error").slice(0,80))}</div>`;
   }
 
-  const agoText=svc?.lastRefresh?fmtAgo(svc.lastRefresh):"";
+  const agoText=svc?.lastRefresh?fmtAgo(svc.lastRefresh):"Awaiting first snapshot";
   
   // Extract reset time from data (wrapped in try/catch for safety)
   let resetInfo = '';
@@ -543,24 +857,36 @@ function overviewCard(id,index){
   } catch {}
   
   const staleBadge = isStale ? `<span class="stale-badge" style="margin-left:6px">⚠ Stale</span>` : '';
-  const accentGrad = isStale 
-    ? `linear-gradient(90deg,transparent,rgba(245,158,11,.4),transparent)`
-    : `linear-gradient(90deg,transparent,${color}30,transparent)`;
+  const accentGrad = attention==="critical"
+    ? `linear-gradient(90deg,transparent,rgba(248,113,113,.4),transparent)`
+    : isStale ? `linear-gradient(90deg,transparent,rgba(245,158,11,.4),transparent)` : `linear-gradient(90deg,transparent,${color}40,transparent)`;
   const accentClass = isStale ? 'accent-stale' : '';
 
-  return`<div class="c cp anim a${Math.min(index+1,4)} ${isStale ? 'card-stale' : ''}" style="cursor:pointer" onclick="S.tab='${id}';render()">
+  return`<div class="c cp service-card anim a${Math.min(index+1,4)} ${isStale ? 'card-stale' : ''}">
     <div class="accent ${accentClass}" style="background:${accentGrad}"></div>
     ${!loading?cardRefreshBtn(id):""}
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
-      <div>
-        <div style="font-size:12.5px;font-weight:700;display:flex;align-items:center;gap:6px">
-          ${name}${staleBadge}${resetInfo?`<span class="reset-pill"><span class="ri">↻</span>${resetInfo}</span>`:''}
+    <div class="service-card-head">
+      <div class="service-card-title">
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+          <h3>${name}</h3>
+          ${staleBadge}
+          ${resetInfo?`<span class="reset-pill"><span class="ri">↻</span>${resetInfo}</span>`:""}
         </div>
-        ${agoText?`<div style="font-size:9px;color:var(--t4);margin-top:1px">${agoText}</div>`:""}
+        <p>${meta.tag}</p>
       </div>
-      ${statusChip(id)}
+      <div class="service-card-meta">${statusChip(id)}</div>
     </div>
-    ${content}
+    <div style="display:flex;gap:16px;align-items:flex-start">
+      <div style="flex:0 0 auto">${loading?"":serviceSpark(id)}</div>
+      <div style="flex:1;min-width:0">${content}</div>
+    </div>
+    <div class="service-footer">
+      <div class="meta-line">${agoText}</div>
+      <div class="inline-actions">
+        <span class="ch ${attention==="critical"||attention==="error"?"ch-err":attention==="watch"||attention==="stale"?"ch-plan":"ch-ok"}">${attention==="healthy"?"Healthy":attention==="watch"?"Watch":attention==="critical"?"Critical":attention==="stale"?"Cached":"Check"}</span>
+        <button class="btn" onclick="openTab('${id}')" aria-label="Open ${name} details">Open details</button>
+      </div>
+    </div>
   </div>`;
 }
 
@@ -1660,11 +1986,11 @@ function _vGemini(){
 // ━━━ HELPERS ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 function empty(id,title,desc,link){
   const c={chatgpt:"var(--chatgpt)",copilot:"var(--copilot)",claude:"var(--claude)",ollama:"var(--ollama)",zai:"var(--zai)",gemini:"var(--gemini)"}[id];
-  return`<div class="c cp anim" style="text-align:center;padding:44px 20px">
-    <div style="width:40px;height:40px;border-radius:14px;background:${c}08;border:1px solid ${c}10;display:flex;align-items:center;justify-content:center;margin:0 auto 14px;font-size:18px;color:${c};opacity:.4">?</div>
-    <h3 style="font-size:14px;font-weight:700;margin-bottom:4px">${title}</h3>
-    <p style="font-size:10.5px;color:var(--t3);line-height:1.6;max-width:360px;margin:0 auto 16px">${desc}</p>
-    <div style="display:flex;gap:6px;justify-content:center">
+  return`<div class="c cp anim" style="text-align:center;padding:52px 24px">
+    <div style="width:52px;height:52px;border-radius:18px;background:${c}12;border:1px solid ${c}22;display:flex;align-items:center;justify-content:center;margin:0 auto 18px;font-size:20px;color:${c};opacity:.9">?</div>
+    <h3 style="font-size:22px;font-weight:800;letter-spacing:-.04em;margin-bottom:8px">${title}</h3>
+    <p style="font-size:12px;color:var(--t3);line-height:1.8;max-width:520px;margin:0 auto 18px">${desc}</p>
+    <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap">
       <button class="btn btn-p" onclick="S.modal='config';render()">Open Settings</button>
       ${link?`<a href="${link}" target="_blank" class="btn">Guide</a>`:""}
     </div>
@@ -1672,11 +1998,11 @@ function empty(id,title,desc,link){
 }
 
 function errCard(err,hint){
-  return`<div class="c cp anim" style="border-color:rgba(239,68,68,.12)">
-    <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px"><span class="dot dot-r"></span><span style="font-size:11px;font-weight:600;color:var(--red)">Connection Error</span></div>
-    <div class="mono" style="font-size:10px;color:#f87171;word-break:break-all;margin-bottom:4px">${h(err)}</div>
-    ${hint?`<p style="font-size:9.5px;color:var(--t3);line-height:1.5">${h(hint)}</p>`:""}
-    <button class="btn" style="margin-top:8px;color:var(--red);border-color:rgba(239,68,68,.12)" onclick="S.modal='config';render()">Update Settings</button>
+  return`<div class="c cp anim" style="border-color:rgba(248,113,113,.25)">
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px"><span class="dot dot-r"></span><span style="font-size:12px;font-weight:800;color:var(--red)">Connection error</span></div>
+    <div class="mono" style="font-size:11px;color:#fca5a5;word-break:break-word;line-height:1.8;margin-bottom:6px">${h(err)}</div>
+    ${hint?`<p style="font-size:10px;color:var(--t3);line-height:1.7">${h(hint)}</p>`:""}
+    <button class="btn" style="margin-top:12px;color:var(--red);border-color:rgba(248,113,113,.22)" onclick="S.modal='config';render()">Update Settings</button>
   </div>`;
 }
 
@@ -2009,7 +2335,7 @@ function vYasbWizard() {
         <h2 style="font-size:15px;font-weight:800">YASB Widget Setup</h2>
         <p style="font-size:10px;color:var(--t3);margin-top:2px">Install AI usage widgets in your status bar</p>
       </div>
-      <button class="btn" style="padding:5px 8px" onclick="S.modal=null;render()">&times;</button>
+      <button class="btn" style="padding:5px 8px" onclick="S.modal=null;render()" aria-label="Close YASB widget setup">&times;</button>
     </div>
     ${content}
   </div></div>`;
@@ -2019,7 +2345,7 @@ function vSettings(){
   <div class="modal anim">
     <div style="display:flex;justify-content:space-between;align-items:start;margin-bottom:18px">
       <div><h2 style="font-size:15px;font-weight:800">Settings</h2><p style="font-size:10px;color:var(--t3);margin-top:2px">Configure API keys</p></div>
-      <button class="btn" style="padding:5px 8px" onclick="S.modal=null;render()">&times;</button>
+      <button class="btn" style="padding:5px 8px" onclick="S.modal=null;render()" aria-label="Close settings">&times;</button>
     </div>
 
     <div style="padding-bottom:14px;margin-bottom:14px;border-bottom:1px solid var(--b1)">
