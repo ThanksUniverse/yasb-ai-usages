@@ -1263,12 +1263,21 @@ function saveLastGood() {
 }
 
 const SVC_YASB_FIELDS = {
-  chatgpt: ['chatgpt_session','chatgpt_weekly','chatgpt_session_reset','chatgpt_weekly_reset'],
+  chatgpt: ['chatgpt_session','chatgpt_weekly','chatgpt_session_reset','chatgpt_weekly_reset','chatgpt_limit_reset'],
   copilot: ['copilot_used','copilot_total','copilot_pct','copilot_reset'],
-  claude: ['claude_session','claude_weekly','claude_session_reset','claude_weekly_reset'],
-  ollama: ['ollama_session','ollama_weekly','ollama_session_reset','ollama_weekly_reset'],
+  claude: ['claude_session','claude_weekly','claude_session_reset','claude_weekly_reset','claude_limit_reset'],
+  ollama: ['ollama_session','ollama_weekly','ollama_session_reset','ollama_weekly_reset','ollama_limit_reset'],
   zai: ['zai_token_pct','zai_mcp_pct'],
   gemini: ['gemini_model','gemini_rpm_used','gemini_rpm_limit','gemini_tpm_used','gemini_tpm_limit','gemini_rpd_used','gemini_rpd_limit','gemini_rpd_pct','gemini_rpd_reset'],
+};
+
+const SVC_META = {
+  chatgpt: { name: "ChatGPT" },
+  copilot: { name: "Copilot" },
+  claude: { name: "Claude" },
+  ollama: { name: "α2" },
+  zai: { name: "Z.AI" },
+  gemini: { name: "Gemini" },
 };
 
 const formatSeconds = (s) => {
@@ -1285,7 +1294,248 @@ const formatUntil = (iso) => {
   return formatSeconds(ms / 1000);
 };
 
+function isSvcConfigured(svc) {
+  switch (svc) {
+    case "chatgpt": return !!CFG.CHATGPT_ACCESS_TOKEN;
+    case "copilot": return !!CFG.GITHUB_TOKEN;
+    case "claude": return !!CFG.CLAUDE_SESSION_KEY;
+    case "ollama": return !!(CFG.OLLAMA_API_KEY || CFG.OLLAMA_SESSION_COOKIE);
+    case "zai": return !!CFG.ZAI_AUTH_TOKEN;
+    case "gemini": return !!getGeminiProjectId();
+    default: return false;
+  }
+}
+
+function cleanIssueText(value) {
+  return String(value || "").replace(/\s+/g, " ").trim();
+}
+
+function classifySvcIssue(svc, candidate) {
+  if (!candidate) return null;
+  const status = Number(candidate.status || 0) || 0;
+  const error = cleanIssueText(candidate.error);
+  const hint = cleanIssueText(candidate.hint);
+  const body = cleanIssueText(candidate.body).slice(0, 160);
+  const combined = cleanIssueText(`${error} ${hint} ${body}`);
+  if (!combined && !status) return null;
+
+  let code = "api";
+  let label = "API";
+  if (
+    status === 401 || status === 403 ||
+    /unauthori[sz]ed|forbidden|expired|invalid|signin|read:user|cookie expired|session key may be expired|token may be expired|access token is expired/i.test(combined)
+  ) {
+    code = "auth";
+    label = "AUTH";
+  } else if (status === 429 || /rate limit|too many requests/i.test(combined)) {
+    code = "limit";
+    label = "LIMIT";
+  } else if (/timeout|timed out|aborted/i.test(combined)) {
+    code = "timeout";
+    label = "TIMEOUT";
+  } else if (/scope|permission|viewer access|serviceusage|monitoring read access/i.test(combined)) {
+    code = "access";
+    label = "ACCESS";
+  } else if (status >= 500 || /service unavailable|bad gateway|internal server error/i.test(combined)) {
+    code = "down";
+    label = "DOWN";
+  } else if (/network|fetch failed|econn|enotfound|dns/i.test(combined)) {
+    code = "net";
+    label = "NET";
+  }
+
+  return {
+    code,
+    label,
+    detail: error || hint || body || `HTTP ${status}`,
+  };
+}
+
+function svcActionHint(svc, issueCode) {
+  if (issueCode === "timeout" || issueCode === "down" || issueCode === "net") {
+    return "Retry on the next refresh. If it keeps failing, open the dashboard and verify connectivity.";
+  }
+  if (issueCode === "limit") {
+    return "Wait for the quota window to reset, or reduce usage before retrying.";
+  }
+  switch (svc) {
+    case "chatgpt":
+      return "Refresh CHATGPT_ACCESS_TOKEN from ~/.codex/auth.json or browser DevTools.";
+    case "copilot":
+      return "Create a fresh GitHub PAT with read:user and update GITHUB_TOKEN.";
+    case "claude":
+      return "Copy a fresh claude.ai sessionKey cookie from DevTools.";
+    case "ollama":
+      return "Replace OLLAMA_API_KEY or the ollama.com __Secure-session cookie.";
+    case "zai":
+      return "Refresh ZAI_AUTH_TOKEN.";
+    case "gemini":
+      return "Refresh the Google Cloud token, or verify GEMINI_ACCESS_TOKEN / GEMINI_PROJECT_ID.";
+    default:
+      return "Open the dashboard and refresh the service credentials.";
+  }
+}
+
+function pctText(value) {
+  return value === "--" ? "--" : `${value}%`;
+}
+
+function buildSvcTooltip(title, lines, status, issue, action) {
+  const base = [title, ...lines];
+  if (status === "OK") return base.join("\n");
+  const extra = [`Status: ${status}`];
+  if (issue?.detail) extra.push(`Cause: ${issue.detail}`);
+  if (action) extra.push(`Action: ${action}`);
+  return [...base, ...extra].join("\n");
+}
+
+function buildSvcPresentation(svc, result, issue) {
+  const stale = !!result[`${svc}_stale`];
+  const ok = result[`${svc}_ok`] === true;
+  const action = (stale || !ok) ? svcActionHint(svc, issue?.code || "api") : "";
+
+  if (!ok && !stale) {
+    const badge = issue?.label || "ERR";
+    let detail = "Open dashboard";
+    if (badge === "AUTH") detail = "Refresh auth";
+    else if (badge === "LIMIT") detail = "Wait/retry";
+    else if (badge === "TIMEOUT") detail = "Retry";
+    return {
+      [`${svc}_status`]: badge,
+      [`${svc}_action`]: action,
+      [`${svc}_error_detail`]: issue?.detail || "",
+      [`${svc}_display`]: badge,
+      [`${svc}_display_alt`]: `${badge} · ${detail}`,
+      [`${svc}_tooltip`]: buildSvcTooltip(
+        SVC_META[svc].name,
+        ["Usage API unavailable."],
+        badge,
+        issue,
+        action
+      ),
+    };
+  }
+
+  const status = stale ? "STALE" : "OK";
+  switch (svc) {
+    case "chatgpt":
+      return {
+        [`${svc}_status`]: status,
+        [`${svc}_action`]: action,
+        [`${svc}_error_detail`]: issue?.detail || "",
+        [`${svc}_display`]: `${pctText(result.chatgpt_session)}·${pctText(result.chatgpt_weekly)} ↻${result.chatgpt_limit_reset}`,
+        [`${svc}_display_alt`]: `S:${pctText(result.chatgpt_session)} ↻${result.chatgpt_limit_reset}  W:${pctText(result.chatgpt_weekly)} ↻${result.chatgpt_weekly_reset}`,
+        [`${svc}_tooltip`]: buildSvcTooltip(
+          "ChatGPT Plus",
+          [
+            `Session: ${pctText(result.chatgpt_session)} (Resets in ${result.chatgpt_limit_reset})`,
+            `Weekly: ${pctText(result.chatgpt_weekly)} (Resets in ${result.chatgpt_weekly_reset})`,
+          ],
+          status,
+          issue,
+          action
+        ),
+      };
+    case "copilot":
+      return {
+        [`${svc}_status`]: status,
+        [`${svc}_action`]: action,
+        [`${svc}_error_detail`]: issue?.detail || "",
+        [`${svc}_display`]: pctText(result.copilot_pct),
+        [`${svc}_display_alt`]: `${result.copilot_used}/${result.copilot_total} ↻${result.copilot_reset}`,
+        [`${svc}_tooltip`]: buildSvcTooltip(
+          "GitHub Copilot Pro",
+          [
+            `Used: ${result.copilot_used}/${result.copilot_total} premium`,
+            `Percent: ${pctText(result.copilot_pct)}`,
+            `Resets in: ${result.copilot_reset}`,
+          ],
+          status,
+          issue,
+          action
+        ),
+      };
+    case "claude":
+      return {
+        [`${svc}_status`]: status,
+        [`${svc}_action`]: action,
+        [`${svc}_error_detail`]: issue?.detail || "",
+        [`${svc}_display`]: `${pctText(result.claude_session)}·${pctText(result.claude_weekly)} ↻${result.claude_limit_reset}`,
+        [`${svc}_display_alt`]: `S:${pctText(result.claude_session)} ↻${result.claude_limit_reset}  W:${pctText(result.claude_weekly)} ↻${result.claude_weekly_reset}`,
+        [`${svc}_tooltip`]: buildSvcTooltip(
+          "Claude Pro",
+          [
+            `Session: ${pctText(result.claude_session)} (Resets in ${result.claude_limit_reset})`,
+            `Weekly: ${pctText(result.claude_weekly)} (Resets in ${result.claude_weekly_reset})`,
+          ],
+          status,
+          issue,
+          action
+        ),
+      };
+    case "ollama":
+      return {
+        [`${svc}_status`]: status,
+        [`${svc}_action`]: action,
+        [`${svc}_error_detail`]: issue?.detail || "",
+        [`${svc}_display`]: `${pctText(result.ollama_session)}·${pctText(result.ollama_weekly)} ↻${result.ollama_limit_reset}`,
+        [`${svc}_display_alt`]: `S:${pctText(result.ollama_session)} ↻${result.ollama_limit_reset}  W:${pctText(result.ollama_weekly)} ↻${result.ollama_weekly_reset}`,
+        [`${svc}_tooltip`]: buildSvcTooltip(
+          "α2",
+          [
+            `Session: ${pctText(result.ollama_session)} (Resets in ${result.ollama_limit_reset})`,
+            `Weekly: ${pctText(result.ollama_weekly)} (Resets in ${result.ollama_weekly_reset})`,
+          ],
+          status,
+          issue,
+          action
+        ),
+      };
+    case "zai":
+      return {
+        [`${svc}_status`]: status,
+        [`${svc}_action`]: action,
+        [`${svc}_error_detail`]: issue?.detail || "",
+        [`${svc}_display`]: `${pctText(result.zai_token_pct)}·${pctText(result.zai_mcp_pct)}`,
+        [`${svc}_display_alt`]: `Token:${pctText(result.zai_token_pct)} MCP:${pctText(result.zai_mcp_pct)}`,
+        [`${svc}_tooltip`]: buildSvcTooltip(
+          "Z.AI GLM Coding",
+          [
+            `Token (5h): ${pctText(result.zai_token_pct)}`,
+            `MCP (Monthly): ${pctText(result.zai_mcp_pct)}`,
+          ],
+          status,
+          issue,
+          action
+        ),
+      };
+    case "gemini":
+      return {
+        [`${svc}_status`]: status,
+        [`${svc}_action`]: action,
+        [`${svc}_error_detail`]: issue?.detail || "",
+        [`${svc}_display`]: pctText(result.gemini_rpd_pct),
+        [`${svc}_display_alt`]: `${result.gemini_rpd_used}/${result.gemini_rpd_limit} RPD ↻${result.gemini_rpd_reset}`,
+        [`${svc}_tooltip`]: buildSvcTooltip(
+          `Gemini - ${result.gemini_model}`,
+          [
+            `RPM: ${result.gemini_rpm_used}/${result.gemini_rpm_limit}`,
+            `TPM: ${result.gemini_tpm_used}/${result.gemini_tpm_limit}`,
+            `RPD: ${result.gemini_rpd_used}/${result.gemini_rpd_limit} (${pctText(result.gemini_rpd_pct)})`,
+            `Resets in: ${result.gemini_rpd_reset}`,
+          ],
+          status,
+          issue,
+          action
+        ),
+      };
+    default:
+      return {};
+  }
+}
+
 async function _fetchSummary() {
+  const svcIssues = {};
   const result = {
     chatgpt_session: null, chatgpt_weekly: null, chatgpt_session_reset: null, chatgpt_weekly_reset: null, chatgpt_ok: false,
     copilot_used: null, copilot_total: null, copilot_pct: null, copilot_reset: null, copilot_ok: false,
@@ -1316,10 +1566,10 @@ async function _fetchSummary() {
       }) : Promise.resolve(null),
       CFG.CLAUDE_SESSION_KEY ? (async () => {
         const orgsR = await apiFetch("https://claude.ai/api/organizations", { headers: claudeHeaders() });
-        if (!orgsR.ok) return null;
+        if (!orgsR.ok) return { ok: false, status: orgsR.status, error: `Orgs: ${orgsR.error}`, body: orgsR.body };
         const orgs = Array.isArray(orgsR.data) ? orgsR.data : [orgsR.data];
         const org = orgs.find(o => o.capabilities?.includes?.("chat") || o.capabilities?.includes?.("claude_pro")) || orgs[0];
-        if (!org?.uuid) return null;
+        if (!org?.uuid) return { ok: false, error: "No org found" };
         return apiFetch(`https://claude.ai/api/organizations/${org.uuid}/usage`, { headers: claudeHeaders() });
       })() : Promise.resolve(null),
       (CFG.OLLAMA_API_KEY || CFG.OLLAMA_SESSION_COOKIE) ? scrapeOllamaUsage() : Promise.resolve(null),
@@ -1328,7 +1578,7 @@ async function _fetchSummary() {
       }) : Promise.resolve(null),
       loadGeminiUsageSnapshot(),
     ]);
-    const chatgpt = chatgptR.status === "fulfilled" ? chatgptR.value : null;
+    const chatgpt = chatgptR.status === "fulfilled" ? chatgptR.value : { error: chatgptR.reason?.message || String(chatgptR.reason || "") };
     if (chatgpt?.ok && chatgpt.data?.rate_limit) {
       const rl = chatgpt.data.rate_limit;
       result.chatgpt_session = Math.round(rl.primary_window?.used_percent || 0);
@@ -1341,8 +1591,10 @@ async function _fetchSummary() {
       result.chatgpt_limit_reset = _cgSecs <= _cgWSecs
         ? result.chatgpt_session_reset : result.chatgpt_weekly_reset;
       result.chatgpt_ok = true;
+    } else if (isSvcConfigured("chatgpt")) {
+      svcIssues.chatgpt = classifySvcIssue("chatgpt", chatgpt);
     }
-    const copilot = copilotR.status === "fulfilled" ? copilotR.value : null;
+    const copilot = copilotR.status === "fulfilled" ? copilotR.value : { error: copilotR.reason?.message || String(copilotR.reason || "") };
     if (copilot?.ok && copilot.data?.quota_snapshots?.premium_interactions) {
       const prem = copilot.data.quota_snapshots.premium_interactions;
       result.copilot_used = prem.entitlement - (prem.remaining || 0);
@@ -1353,8 +1605,10 @@ async function _fetchSummary() {
         result.copilot_reset = resetDiff > 0 ? Math.ceil(resetDiff / 86400000) + 'd' : '--';
       }
       result.copilot_ok = true;
+    } else if (isSvcConfigured("copilot")) {
+      svcIssues.copilot = classifySvcIssue("copilot", copilot);
     }
-    const claude = claudeR.status === "fulfilled" ? claudeR.value : null;
+    const claude = claudeR.status === "fulfilled" ? claudeR.value : { error: claudeR.reason?.message || String(claudeR.reason || "") };
     if (claude?.ok && claude.data) {
       const fh = claude.data.five_hour || {};
       const sd = claude.data.seven_day || {};
@@ -1368,8 +1622,10 @@ async function _fetchSummary() {
       result.claude_limit_reset = _clST <= _clWT
         ? result.claude_session_reset : result.claude_weekly_reset;
       result.claude_ok = true;
+    } else if (isSvcConfigured("claude")) {
+      svcIssues.claude = classifySvcIssue("claude", claude);
     }
-    const ollama = ollamaR.status === "fulfilled" ? ollamaR.value : null;
+    const ollama = ollamaR.status === "fulfilled" ? ollamaR.value : { error: ollamaR.reason?.message || String(ollamaR.reason || "") };
     if (ollama?.scraped) {
       result.ollama_session = ollama.session_pct != null ? Math.round(ollama.session_pct) : null;
       result.ollama_weekly = ollama.weekly_pct != null ? Math.round(ollama.weekly_pct) : null;
@@ -1381,8 +1637,10 @@ async function _fetchSummary() {
       result.ollama_limit_reset = _olST <= _olWT
         ? result.ollama_session_reset : result.ollama_weekly_reset;
       result.ollama_ok = true;
+    } else if (isSvcConfigured("ollama")) {
+      svcIssues.ollama = classifySvcIssue("ollama", ollama);
     }
-    const zai = zaiR.status === "fulfilled" ? zaiR.value : null;
+    const zai = zaiR.status === "fulfilled" ? zaiR.value : { error: zaiR.reason?.message || String(zaiR.reason || "") };
     if (zai?.ok && zai.data?.data?.limits) {
       for (const lim of zai.data.data.limits) {
         if (lim.type === "TOKENS_LIMIT" && lim.percentage != null) {
@@ -1392,8 +1650,10 @@ async function _fetchSummary() {
         }
       }
       result.zai_ok = true;
+    } else if (isSvcConfigured("zai")) {
+      svcIssues.zai = classifySvcIssue("zai", zai);
     }
-    const gemini = geminiR.status === "fulfilled" ? geminiR.value : null;
+    const gemini = geminiR.status === "fulfilled" ? geminiR.value : { error: geminiR.reason?.message || String(geminiR.reason || "") };
     if (gemini?.configured && gemini?.selectedModel) {
       const sm = gemini.selectedModel;
       result.gemini_model = sm.displayName || sm.model || null;
@@ -1408,6 +1668,11 @@ async function _fetchSummary() {
       const nextMidnight = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1));
       result.gemini_rpd_reset = formatSeconds((nextMidnight - now) / 1000);
       result.gemini_ok = true;
+      if (gemini.stale && gemini.staleError) {
+        svcIssues.gemini = classifySvcIssue("gemini", { error: gemini.staleError });
+      }
+    } else if (isSvcConfigured("gemini")) {
+      svcIssues.gemini = classifySvcIssue("gemini", gemini);
     }
 
   // Normalize nulls → "--" so YASB labels never render "None"
@@ -1439,6 +1704,7 @@ async function _fetchSummary() {
       result[`${svc}_stale`] = false;
       result[`${svc}_stale_marker`] = '';
     }
+    Object.assign(result, buildSvcPresentation(svc, result, svcIssues[svc]));
   }
   if (lastGoodChanged) saveLastGood();
   // ── End stale tracking ──────────────────────────────────────────────
@@ -1538,7 +1804,7 @@ for (const [svc, okKey] of [
       // Server-side disable — returns 204 so YASB hide_empty hides the widget
       if (getPrefs().disabledServices?.includes(svc)) return res.status(204).end();
       const data = await computeSummary();
-      data[okKey] ? res.json(data) : res.status(204).end();
+      (data[okKey] || isSvcConfigured(svc)) ? res.json(data) : res.status(204).end();
     } catch { res.status(204).end(); }
   });
 }
@@ -1615,46 +1881,46 @@ function generateWidgetConfig(services, layout) {
 
   const serviceConfigs = {
     chatgpt: {
-      label: '<span>\udb80\udcab</span> {data[chatgpt_session]}%',
-      label_alt: '<span>\udb80\udcab</span> GPT {data[chatgpt_session]}% ({data[chatgpt_session_reset]}) | {data[chatgpt_weekly]}% w ({data[chatgpt_weekly_reset]})',
+      label: '<span>\udb80\udcab</span> {data[chatgpt_stale_marker]}{data[chatgpt_display]}',
+      label_alt: '<span>\udb80\udcab</span> {data[chatgpt_stale_marker]}{data[chatgpt_display_alt]}',
       class_name: "ai-chatgpt",
       label_placeholder: '\udb80\udcab --',
-      tooltip_label: 'ChatGPT Plus\nSession: {data[chatgpt_session]}% (Resets in {data[chatgpt_session_reset]})\nWeekly: {data[chatgpt_weekly]}% (Resets in {data[chatgpt_weekly_reset]})',
+      tooltip_label: '{data[chatgpt_tooltip]}',
     },
     copilot: {
-      label: '<span>\uf113</span> {data[copilot_pct]}%',
-      label_alt: '<span>\uf113</span> Cop {data[copilot_used]}/{data[copilot_total]} ({data[copilot_reset]})',
+      label: '<span>\uf113</span> {data[copilot_stale_marker]}{data[copilot_display]}',
+      label_alt: '<span>\uf113</span> {data[copilot_stale_marker]}{data[copilot_display_alt]}',
       class_name: "ai-copilot",
       label_placeholder: '\uf113 --',
-      tooltip_label: 'GitHub Copilot Pro\nUsed: {data[copilot_used]}/{data[copilot_total]} premium\nPercent: {data[copilot_pct]}%\nResets in: {data[copilot_reset]}',
+      tooltip_label: '{data[copilot_tooltip]}',
     },
     claude: {
-      label: '<span>\udb81\ude2e</span> {data[claude_session]}%',
-      label_alt: '<span>\udb81\ude2e</span> Cla {data[claude_session]}% ({data[claude_session_reset]}) | {data[claude_weekly]}%w ({data[claude_weekly_reset]})',
+      label: '<span>\udb81\ude2e</span> {data[claude_stale_marker]}{data[claude_display]}',
+      label_alt: '<span>\udb81\ude2e</span> {data[claude_stale_marker]}{data[claude_display_alt]}',
       class_name: "ai-claude",
       label_placeholder: '\udb81\ude2e --',
-      tooltip_label: 'Claude Pro\nSession: {data[claude_session]}% (Resets in {data[claude_session_reset]})\nWeekly: {data[claude_weekly]}% (Resets in {data[claude_weekly_reset]})',
+      tooltip_label: '{data[claude_tooltip]}',
     },
     ollama: {
-      label: '<span>\uf201</span> {data[ollama_session]}%',
-      label_alt: '<span>\uf201</span> Oll {data[ollama_session]}% ({data[ollama_session_reset]}) | {data[ollama_weekly]}%w ({data[ollama_weekly_reset]})',
+      label: '<span>\uf201</span> {data[ollama_stale_marker]}{data[ollama_display]}',
+      label_alt: '<span>\uf201</span> {data[ollama_stale_marker]}{data[ollama_display_alt]}',
       class_name: "ai-ollama",
       label_placeholder: '\uf201 --',
-      tooltip_label: 'Ollama\nSession: {data[ollama_session]}% (Resets in {data[ollama_session_reset]})\nWeekly: {data[ollama_weekly]}% (Resets in {data[ollama_weekly_reset]})',
+      tooltip_label: '{data[ollama_tooltip]}',
     },
     zai: {
-      label: '<span>\udb80\udea8</span> {data[zai_token_pct]}%',
-      label_alt: '<span>\udb80\udea8</span> Z.AI Tk {data[zai_token_pct]}% | MCP {data[zai_mcp_pct]}%',
+      label: '<span>\udb80\udea8</span> {data[zai_stale_marker]}{data[zai_display]}',
+      label_alt: '<span>\udb80\udea8</span> {data[zai_stale_marker]}{data[zai_display_alt]}',
       class_name: "ai-zai",
       label_placeholder: '\udb80\udea8 --',
-      tooltip_label: 'Z.AI GLM Coding\nToken (5h): {data[zai_token_pct]}%\nMCP (Monthly): {data[zai_mcp_pct]}%',
+      tooltip_label: '{data[zai_tooltip]}',
     },
     gemini: {
-      label: '<span>\uf1a0</span> {data[gemini_rpd_pct]}%',
-      label_alt: '<span>\uf1a0</span> Gem {data[gemini_rpd_used]}/{data[gemini_rpd_limit]} ({data[gemini_rpd_reset]})',
+      label: '<span>\uf1a0</span> {data[gemini_stale_marker]}{data[gemini_display]}',
+      label_alt: '<span>\uf1a0</span> {data[gemini_stale_marker]}{data[gemini_display_alt]}',
       class_name: "ai-gemini",
       label_placeholder: '\uf1a0 --',
-      tooltip_label: 'Gemini - {data[gemini_model]}\nRPM: {data[gemini_rpm_used]}/{data[gemini_rpm_limit]}\nTPM: {data[gemini_tpm_used]}/{data[gemini_tpm_limit]}\nRPD: {data[gemini_rpd_used]}/{data[gemini_rpd_limit]} ({data[gemini_rpd_pct]}%)\nResets in: {data[gemini_rpd_reset]}',
+      tooltip_label: '{data[gemini_tooltip]}',
     },
   };
 
