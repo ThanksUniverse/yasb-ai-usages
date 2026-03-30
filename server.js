@@ -1581,8 +1581,8 @@ async function _fetchSummary() {
     const chatgpt = chatgptR.status === "fulfilled" ? chatgptR.value : { error: chatgptR.reason?.message || String(chatgptR.reason || "") };
     if (chatgpt?.ok && chatgpt.data?.rate_limit) {
       const rl = chatgpt.data.rate_limit;
-      result.chatgpt_session = Math.round(rl.primary_window?.used_percent || 0);
-      result.chatgpt_weekly = Math.round(rl.secondary_window?.used_percent || 0);
+      result.chatgpt_session = (rl.primary_window?.used_percent || 0).toFixed(2);
+      result.chatgpt_weekly = (rl.secondary_window?.used_percent || 0).toFixed(2);
       result.chatgpt_session_reset = formatSeconds(rl.primary_window?.reset_after_seconds);
       result.chatgpt_weekly_reset = formatSeconds(rl.secondary_window?.reset_after_seconds);
       // Smaller reset time = whichever window resets sooner
@@ -1599,7 +1599,7 @@ async function _fetchSummary() {
       const prem = copilot.data.quota_snapshots.premium_interactions;
       result.copilot_used = prem.entitlement - (prem.remaining || 0);
       result.copilot_total = prem.entitlement;
-      result.copilot_pct = prem.entitlement > 0 ? Math.round((result.copilot_used / prem.entitlement) * 100) : 0;
+      result.copilot_pct = prem.entitlement > 0 ? ((result.copilot_used / prem.entitlement) * 100).toFixed(2) : "0.00";
       if (copilot.data.quota_reset_date) {
         const resetDiff = new Date(copilot.data.quota_reset_date) - Date.now();
         result.copilot_reset = resetDiff > 0 ? Math.ceil(resetDiff / 86400000) + 'd' : '--';
@@ -1612,8 +1612,8 @@ async function _fetchSummary() {
     if (claude?.ok && claude.data) {
       const fh = claude.data.five_hour || {};
       const sd = claude.data.seven_day || {};
-      result.claude_session = fh.utilization != null ? Math.round(fh.utilization) : null;
-      result.claude_weekly = sd.utilization != null ? Math.round(sd.utilization) : null;
+      result.claude_session = fh.utilization != null ? (+fh.utilization).toFixed(2) : null;
+      result.claude_weekly = sd.utilization != null ? (+sd.utilization).toFixed(2) : null;
       result.claude_session_reset = formatUntil(fh.resets_at);
       result.claude_weekly_reset = formatUntil(sd.resets_at);
       // Smaller reset time = whichever resets sooner
@@ -1627,8 +1627,8 @@ async function _fetchSummary() {
     }
     const ollama = ollamaR.status === "fulfilled" ? ollamaR.value : { error: ollamaR.reason?.message || String(ollamaR.reason || "") };
     if (ollama?.scraped) {
-      result.ollama_session = ollama.session_pct != null ? Math.round(ollama.session_pct) : null;
-      result.ollama_weekly = ollama.weekly_pct != null ? Math.round(ollama.weekly_pct) : null;
+      result.ollama_session = ollama.session_pct != null ? (+ollama.session_pct).toFixed(2) : null;
+      result.ollama_weekly = ollama.weekly_pct != null ? (+ollama.weekly_pct).toFixed(2) : null;
       result.ollama_session_reset = formatUntil(ollama.session_resets_at);
       result.ollama_weekly_reset = formatUntil(ollama.weekly_resets_at);
       // Smaller reset time = whichever resets sooner
@@ -1644,9 +1644,9 @@ async function _fetchSummary() {
     if (zai?.ok && zai.data?.data?.limits) {
       for (const lim of zai.data.data.limits) {
         if (lim.type === "TOKENS_LIMIT" && lim.percentage != null) {
-          result.zai_token_pct = Math.round(lim.percentage);
+          result.zai_token_pct = (+lim.percentage).toFixed(2);
         } else if (lim.type === "TIME_LIMIT" && lim.percentage != null) {
-          result.zai_mcp_pct = Math.round(lim.percentage);
+          result.zai_mcp_pct = (+lim.percentage).toFixed(2);
         }
       }
       result.zai_ok = true;
@@ -1663,7 +1663,7 @@ async function _fetchSummary() {
       result.gemini_tpm_limit = sm.tpm?.limit ?? null;
       result.gemini_rpd_used = Math.round(sm.rpd?.used || 0);
       result.gemini_rpd_limit = sm.rpd?.limit ?? null;
-      result.gemini_rpd_pct = (sm.rpd?.limit > 0) ? Math.round((sm.rpd.used / sm.rpd.limit) * 100) : 0;
+      result.gemini_rpd_pct = (sm.rpd?.limit > 0) ? ((sm.rpd.used / sm.rpd.limit) * 100).toFixed(2) : "0.00";
       const now = new Date();
       const nextMidnight = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1));
       result.gemini_rpd_reset = formatSeconds((nextMidnight - now) / 1000);

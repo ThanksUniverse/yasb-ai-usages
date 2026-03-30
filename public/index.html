@@ -311,7 +311,7 @@ function gauge(pct,color,sz=90,sw=6,label){
         stroke-dasharray="${d} ${c-d}" stroke-linecap="round" style="transition:stroke-dasharray .7s cubic-bezier(.16,1,.3,1)"/>
     </svg>
     <div class="gauge-lbl">
-      <span class="mono" style="font-size:${sz>80?17:13}px;font-weight:700;color:${col}">${Math.round(v)}%</span>
+      <span class="mono" style="font-size:${sz>80?17:13}px;font-weight:700;color:${col}">${(+v||0).toFixed(2)}%</span>
       ${label?`<span style="font-size:${sz>80?8:7}px;color:var(--t3);font-weight:600;margin-top:1px">${label}</span>`:""}
     </div>
   </div>`;
@@ -747,7 +747,7 @@ function vOverview(){
       <div class="summary-card">
         <div class="eyebrow">Highest Usage</div>
         <div class="value" style="font-size:24px">${metrics.leader?serviceMeta(metrics.leader.id).name:"--"}</div>
-        <div class="meta">${metrics.leader?`${Math.round(metrics.leader.pct)}% of the primary window in use.`:"No active usage data yet."}</div>
+        <div class="meta">${metrics.leader?`${(+metrics.leader.pct||0).toFixed(2)}% of the primary window in use.`:"No active usage data yet."}</div>
       </div>
     </div>
     <div class="section-head anim a1">
@@ -894,17 +894,17 @@ function overviewCard(id,index){
 function getOverviewChatGPT(){
   const u=S.chatgpt?.data?.usage;if(!u?.rate_limit)return null;
   const pw=u.rate_limit.primary_window||{};const sw=u.rate_limit.secondary_window||{};
-  const sPct=Math.round(pw.used_percent||0);
-  const wPct=Math.round(sw.used_percent||0);
+  const sPct=pw.used_percent||0;
+  const wPct=sw.used_percent||0;
   const showDual = Math.abs(sPct-wPct)>2;
   const rows=[
-    {l:"Session (5h)",v:`${sPct}%`,c:sPct>65?"var(--amber)":"var(--chatgpt)"}
+    {l:"Session (5h)",v:`${sPct.toFixed(2)}%`,c:sPct>65?"var(--amber)":"var(--chatgpt)"}
   ];
   if(showDual){
-    rows.push({l:"Weekly (7d)",v:`${wPct}%`,c:wPct>65?"var(--amber)":"var(--chatgpt)"});
+    rows.push({l:"Weekly (7d)",v:`${wPct.toFixed(2)}%`,c:wPct>65?"var(--amber)":"var(--chatgpt)"});
   }
   rows.push({l:"Resets",v:fmtDur(pw.reset_after_seconds)});
-  const extra = showDual ? `<span style="font-size:9px;color:var(--t3)">${wPct}% weekly</span>` : (u.plan_type?(u.rate_limit.limit_reached?`<span class="ch ch-err" style="font-size:8px;padding:2px 7px">Limit Hit</span>`:""):"");
+  const extra = showDual ? `<span style="font-size:9px;color:var(--t3)">${wPct.toFixed(2)}% weekly</span>` : (u.plan_type?(u.rate_limit.limit_reached?`<span class="ch ch-err" style="font-size:8px;padding:2px 7px">Limit Hit</span>`:""):"");
   return{gauge:gauge(sPct,"var(--chatgpt)",76,5,"Session"),
     rows:rows,
     bar:{pct:wPct,color:"var(--chatgpt)"},
@@ -915,7 +915,7 @@ function getOverviewChatGPT(){
 function getOverviewCopilot(){
   const d=S.copilot?.data;
   const q=d?.quotas?.premium_interactions;if(!q)return null;
-  const used=q.entitlement-q.remaining;const pct=Math.round(100-q.percent_remaining);
+  const used=q.entitlement-q.remaining;const pct=100-(q.percent_remaining||0);
   return{gauge:gauge(pct,"var(--copilot)",76,5,"Premium"),
     rows:[
       {l:"Premium used",v:`${used}/${q.entitlement}`,c:"var(--copilot)"},
@@ -934,16 +934,14 @@ function getOverviewClaude(){
   const sPct=fh.utilization!=null?fh.utilization:null;
   const wPct=sd.utilization!=null?sd.utilization:null;
   if(sPct!=null){
-    const sPctRound=Math.round(sPct);
-    const wPctRound=wPct!=null?Math.round(wPct):null;
-    const showDual = wPctRound!=null && Math.abs(sPctRound-wPctRound)>2;
+    const showDual = wPct!=null && Math.abs(sPct-wPct)>2;
     const rows=[
-      {l:"Session (5h)",v:`${sPctRound}%`,c:sPct>65?"var(--amber)":"var(--claude)"}
+      {l:"Session (5h)",v:`${sPct.toFixed(2)}%`,c:sPct>65?"var(--amber)":"var(--claude)"}
     ];
-    if(showDual&&wPctRound!=null){
-      rows.push({l:"Weekly (7d)",v:`${wPctRound}%`,c:wPct>65?"var(--amber)":"var(--claude)"});
+    if(showDual&&wPct!=null){
+      rows.push({l:"Weekly (7d)",v:`${wPct.toFixed(2)}%`,c:wPct>65?"var(--amber)":"var(--claude)"});
     }
-    const extra = (showDual&&wPctRound!=null) ? `<span style="font-size:9px;color:var(--t3)">${wPctRound}% weekly</span>` : (d.orgName?`<span style="font-size:9px;color:var(--t3)">${h(d.orgName)}</span>`:"");
+    const extra = (showDual&&wPct!=null) ? `<span style="font-size:9px;color:var(--t3)">${wPct.toFixed(2)}% weekly</span>` : (d.orgName?`<span style="font-size:9px;color:var(--t3)">${h(d.orgName)}</span>`:"");
     return{gauge:gauge(sPct,"var(--claude)",76,5,"Session"),
       rows:rows,
       bar:{pct:wPct||0,color:"var(--claude)"},
@@ -954,7 +952,7 @@ function getOverviewClaude(){
   if(typeof u==="object"){
     const flat=flattenUsage(u);
     flat.slice(0,3).forEach(([k,v])=>{
-      rows.push({l:k,v:typeof v==="number"?(v<=1&&v>=0?Math.round(v*100)+"%":fmt(v)):String(v).slice(0,15),c:"var(--claude)"});
+      rows.push({l:k,v:typeof v==="number"?(v<=1&&v>=0?(v*100).toFixed(2)+"%":fmt(v)):String(v).slice(0,15),c:"var(--claude)"});
     });
   }
   return{rows,plan:d.plan,extra:d.orgName?`<span style="font-size:9px;color:var(--t3)">${h(d.orgName)}</span>`:""};
@@ -968,12 +966,12 @@ function getOverviewOllama(){
     const sPct=real.session_pct||0;const wPct=real.weekly_pct||0;
     const showDual = Math.abs(sPct-wPct)>2;
     const rows=[
-      {l:"Session",v:`${sPct}%`,c:sPct>65?"var(--amber)":"var(--ollama)"}
+      {l:"Session",v:`${(+sPct).toFixed(2)}%`,c:sPct>65?"var(--amber)":"var(--ollama)"}
     ];
     if(showDual){
-      rows.push({l:"Weekly",v:`${wPct}%`,c:wPct>65?"var(--amber)":"var(--ollama)"});
+      rows.push({l:"Weekly",v:`${(+wPct).toFixed(2)}%`,c:wPct>65?"var(--amber)":"var(--ollama)"});
     }
-    const extra = showDual ? `<span style="font-size:9px;color:var(--t3)">${wPct}% weekly</span>` : (d.local?.connected?`<span style="font-size:9px;color:var(--t3)">${d.local.modelCount} local</span>`:"");
+    const extra = showDual ? `<span style="font-size:9px;color:var(--t3)">${(+wPct).toFixed(2)}% weekly</span>` : (d.local?.connected?`<span style="font-size:9px;color:var(--t3)">${d.local.modelCount} local</span>`:"");
     return{gauge:gauge(sPct,"var(--ollama)",76,5,"Session"),
       rows:rows,
       bar:{pct:wPct,color:"var(--ollama)"},
@@ -1005,9 +1003,9 @@ function getOverviewZAI(){
   const tk=d.quota.tokenLimit;const mcp=d.quota.mcpLimit;
   const tkPct=tk?.percentage||0;const mcpPct=mcp?.percentage||0;
   const rows=[];
-  if(tk)rows.push({l:"Token (5h)",v:`${Math.round(tkPct)}%`,c:tkPct>65?"var(--amber)":"var(--zai)"});
+  if(tk)rows.push({l:"Token (5h)",v:`${tkPct.toFixed(2)}%`,c:tkPct>65?"var(--amber)":"var(--zai)"});
   if(mcp){
-    rows.push({l:"MCP (Monthly)",v:`${Math.round(mcpPct)}%`,c:mcpPct>65?"var(--amber)":"var(--zai)"});
+    rows.push({l:"MCP (Monthly)",v:`${mcpPct.toFixed(2)}%`,c:mcpPct>65?"var(--amber)":"var(--zai)"});
     if(mcp.currentUsage!=null&&mcp.total!=null)rows.push({l:"MCP used",v:`${mcp.currentUsage}/${mcp.total}`,c:"var(--zai)"});
   }
   return{gauge:gauge(tkPct,"var(--zai)",76,5,"Token"),rows,bar:{pct:mcpPct,color:"var(--zai)"}};
@@ -1176,7 +1174,7 @@ function getOverviewGemini(){
   if(!sm)return null;
   const rpdUsed=sm.rpd?.used||0;
   const rpdLimit=sm.rpd?.limit||0;
-  const rpdPct=rpdLimit>0?Math.round(rpdUsed/rpdLimit*100):0;
+  const rpdPct=rpdLimit>0?(rpdUsed/rpdLimit*100):0;
   const rpmUsed=sm.rpm?.used||0;
   const rpmLimit=sm.rpm?.limit||0;
   const now=new Date();
@@ -1248,7 +1246,7 @@ function _vChatGPT(){
         ${gauge(sPct,"var(--chatgpt)",100,7,"Used")}
         <div style="flex:1">
           <div class="lbl" style="margin-bottom:4px">Session Window</div>
-          <div style="font-size:13px;font-weight:700;margin-bottom:8px">${Math.round(sPct)}% consumed</div>
+          <div style="font-size:13px;font-weight:700;margin-bottom:8px">${sPct.toFixed(2)}% consumed</div>
           <div style="display:flex;align-items:center;gap:5px;margin-bottom:2px">
             <span style="font-size:10px;color:var(--t3)">Resets in</span>
             <span class="mono" style="font-size:11px;color:var(--t2);font-weight:600">${fmtDur(pw.reset_after_seconds)}</span>
@@ -1260,7 +1258,7 @@ function _vChatGPT(){
         ${gauge(wPct,"var(--chatgpt)",100,7,"Used")}
         <div style="flex:1">
           <div class="lbl" style="margin-bottom:4px">Weekly Window</div>
-          <div style="font-size:13px;font-weight:700;margin-bottom:8px">${Math.round(wPct)}% consumed</div>
+          <div style="font-size:13px;font-weight:700;margin-bottom:8px">${wPct.toFixed(2)}% consumed</div>
           <div style="display:flex;align-items:center;gap:5px;margin-bottom:2px">
             <span style="font-size:10px;color:var(--t3)">Resets in</span>
             <span class="mono" style="font-size:11px;color:var(--t2);font-weight:600">${fmtDur(sw.reset_after_seconds)}</span>
@@ -1275,7 +1273,7 @@ function _vChatGPT(){
       <div class="lbl" style="margin-bottom:8px">Code Review Limit</div>
       ${crp.used_percent!==undefined?`
         <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px">
-          <span style="font-size:13px;font-weight:700">${Math.round(crp.used_percent)}% used</span>
+          <span style="font-size:13px;font-weight:700">${crp.used_percent.toFixed(2)}% used</span>
           <span style="font-size:10px;color:var(--t3)">Resets ${crp.reset_after_seconds?fmtDur(crp.reset_after_seconds):"--"}</span>
         </div>
         ${pbar(crp.used_percent,"var(--chatgpt)",8)}
@@ -1319,7 +1317,7 @@ function _vCopilot(){
   const q=d.quotas||{};const prem=q.premium_interactions||{};
   const chat=q.chat||{};const comp=q.completions||{};
   const premUsed=prem.entitlement-(prem.remaining||0);
-  const premPct=Math.round(100-(prem.percent_remaining||100));
+  const premPct=100-(prem.percent_remaining||100);
   let resetDays="";
   if(d.quotaReset){const diff=new Date(d.quotaReset)-Date.now();if(diff>0)resetDays=Math.ceil(diff/86400000)+"d";}
 
@@ -1371,7 +1369,7 @@ function _vCopilot(){
     <div class="c cp anim a3">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
         <div class="lbl">Premium</div>
-        <span class="ch ${premPct>80?"ch-err":premPct>50?"ch-err":"ch-ok"}" style="font-size:8px;padding:2px 6px">${premPct}% used</span>
+        <span class="ch ${premPct>80?"ch-err":premPct>50?"ch-err":"ch-ok"}" style="font-size:8px;padding:2px 6px">${premPct.toFixed(2)}% used</span>
       </div>
       <div class="mono" style="font-size:24px;font-weight:700;color:var(--copilot)">${prem.remaining||0}</div>
       <div style="font-size:9px;color:var(--t4);margin-top:3px">remaining</div>
@@ -1425,7 +1423,7 @@ function _vClaude(){
         ${gauge(fhPct,"var(--claude)",100,7,"Used")}
         <div style="flex:1">
           <div class="lbl" style="margin-bottom:4px">Session Window</div>
-          <div style="font-size:13px;font-weight:700;margin-bottom:8px">${Math.round(fhPct)}% consumed</div>
+          <div style="font-size:13px;font-weight:700;margin-bottom:8px">${fhPct.toFixed(2)}% consumed</div>
           <div style="display:flex;align-items:center;gap:5px;margin-bottom:2px">
             <span style="font-size:10px;color:var(--t3)">Resets in</span>
             <span class="mono" style="font-size:11px;color:var(--t2);font-weight:600">${timeUntil(fh.resets_at)}</span>
@@ -1437,7 +1435,7 @@ function _vClaude(){
         ${gauge(sdPct,"var(--claude)",100,7,"Used")}
         <div style="flex:1">
           <div class="lbl" style="margin-bottom:4px">Weekly Window</div>
-          <div style="font-size:13px;font-weight:700;margin-bottom:8px">${Math.round(sdPct)}% consumed</div>
+          <div style="font-size:13px;font-weight:700;margin-bottom:8px">${sdPct.toFixed(2)}% consumed</div>
           <div style="display:flex;align-items:center;gap:5px;margin-bottom:2px">
             <span style="font-size:10px;color:var(--t3)">Resets in</span>
             <span class="mono" style="font-size:11px;color:var(--t2);font-weight:600">${timeUntil(sd.resets_at)}</span>
@@ -1452,7 +1450,7 @@ function _vClaude(){
     ${usage.seven_day_opus?`<div class="c cp anim a1">
       <div class="lbl" style="margin-bottom:8px">Opus (7d)</div>
       <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px">
-        <span style="font-size:13px;font-weight:700">${Math.round(usage.seven_day_opus.utilization||0)}% used</span>
+        <span style="font-size:13px;font-weight:700">${(+(usage.seven_day_opus.utilization)||0).toFixed(2)}% used</span>
         <span style="font-size:10px;color:var(--t3)">Resets ${timeUntil(usage.seven_day_opus.resets_at)}</span>
       </div>
       ${pbar(usage.seven_day_opus.utilization||0,"var(--claude)",8)}
@@ -1460,7 +1458,7 @@ function _vClaude(){
     ${usage.seven_day_sonnet?`<div class="c cp anim a2">
       <div class="lbl" style="margin-bottom:8px">Sonnet (7d)</div>
       <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px">
-        <span style="font-size:13px;font-weight:700">${Math.round(usage.seven_day_sonnet.utilization||0)}% used</span>
+        <span style="font-size:13px;font-weight:700">${(+(usage.seven_day_sonnet.utilization)||0).toFixed(2)}% used</span>
         <span style="font-size:10px;color:var(--t3)">Resets ${timeUntil(usage.seven_day_sonnet.resets_at)}</span>
       </div>
       ${pbar(usage.seven_day_sonnet.utilization||0,"var(--claude)",8)}
@@ -1561,7 +1559,7 @@ function _vOllama(){
         ${gauge(real.session_pct||0,"var(--ollama)",100,7,"Used")}
         <div style="flex:1">
           <div class="lbl" style="margin-bottom:4px">Session Window</div>
-          <div style="font-size:13px;font-weight:700;margin-bottom:8px">${real.session_pct||0}% consumed</div>
+          <div style="font-size:13px;font-weight:700;margin-bottom:8px">${(+(real.session_pct)||0).toFixed(2)}% consumed</div>
           <div style="display:flex;align-items:center;gap:5px;margin-bottom:2px">
             <span style="font-size:10px;color:var(--t3)">Resets in</span>
             <span class="mono" style="font-size:11px;color:var(--t2);font-weight:600">${timeUntil(real.session_resets_at)}</span>
@@ -1573,7 +1571,7 @@ function _vOllama(){
         ${gauge(real.weekly_pct||0,"var(--ollama)",100,7,"Used")}
         <div style="flex:1">
           <div class="lbl" style="margin-bottom:4px">Weekly Window</div>
-          <div style="font-size:13px;font-weight:700;margin-bottom:8px">${real.weekly_pct||0}% consumed</div>
+          <div style="font-size:13px;font-weight:700;margin-bottom:8px">${(+(real.weekly_pct)||0).toFixed(2)}% consumed</div>
           <div style="display:flex;align-items:center;gap:5px;margin-bottom:2px">
             <span style="font-size:10px;color:var(--t3)">Resets in</span>
             <span class="mono" style="font-size:11px;color:var(--t2);font-weight:600">${timeUntil(real.weekly_resets_at)}</span>
@@ -1740,7 +1738,7 @@ function _vZAI(){
         ${gauge(tkPct,"var(--zai)",100,7,"Used")}
         <div style="flex:1">
           <div class="lbl" style="margin-bottom:4px">Token Limit</div>
-          <div style="font-size:13px;font-weight:700;margin-bottom:8px">${Math.round(tkPct)}% consumed</div>
+          <div style="font-size:13px;font-weight:700;margin-bottom:8px">${tkPct.toFixed(2)}% consumed</div>
           <span style="font-size:9px;color:var(--t4)">5-hour rolling window</span>
         </div>
       </div>
@@ -1748,7 +1746,7 @@ function _vZAI(){
         ${gauge(mcpPct,"var(--zai)",100,7,"Used")}
         <div style="flex:1">
           <div class="lbl" style="margin-bottom:4px">MCP Limit</div>
-          <div style="font-size:13px;font-weight:700;margin-bottom:8px">${Math.round(mcpPct)}% consumed</div>
+          <div style="font-size:13px;font-weight:700;margin-bottom:8px">${mcpPct.toFixed(2)}% consumed</div>
           ${mcp?.currentUsage!=null?`<div style="display:flex;align-items:center;gap:5px;margin-bottom:2px">
             <span style="font-size:10px;color:var(--t3)">Used</span>
             <span class="mono" style="font-size:11px;color:var(--t2);font-weight:600">${mcp.currentUsage} / ${mcp.total||"--"}</span>
@@ -1922,7 +1920,7 @@ function _vGemini(){
               </div>
             </div>
             <div style="font-size:9px;color:var(--t4);display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap">
-              <span>${maxPct?`${Math.round(maxPct)}% peak utilization`:"No utilization data"}</span>
+              <span>${maxPct?`${(+maxPct||0).toFixed(2)}% peak utilization`:"No utilization data"}</span>
               <span>${isPinned?`&#9679; YASB widget default`:active?"Selected":""}</span>
             </div>
           </div>`;
@@ -1938,7 +1936,7 @@ function _vGemini(){
             <div style="font-size:13px;font-weight:700">${h(selected.name)}</div>
             ${selected.category?`<div style="font-size:9px;color:var(--t3);margin-top:2px">${h(selected.category)}</div>`:""}
           </div>
-          <span class="ch ch-plan" style="font-size:8px;padding:2px 7px">${Math.round(Math.max(selected.rpm?.pct||0,selected.tpm?.pct||0,selected.rpd?.pct||0))}% peak</span>
+          <span class="ch ch-plan" style="font-size:8px;padding:2px 7px">${Math.max(selected.rpm?.pct||0,selected.tpm?.pct||0,selected.rpd?.pct||0).toFixed(2)}% peak</span>
         </div>
         <div class="g3" style="gap:10px">
           ${geminiMetricStat("RPM",selected.rpm,"var(--gemini)")}
