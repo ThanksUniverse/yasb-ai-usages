@@ -9,6 +9,10 @@ const yaml = require("js-yaml");
 
 // ── Single-instance lock (prevents duplicate processes on lag) ─────
 const LOCK_PATH = path.join(__dirname, "data", "server.lock");
+const EXIT_LOG = path.join(__dirname, "data", "exit.log");
+function logExit(reason) {
+  try { fs.appendFileSync(EXIT_LOG, `${new Date().toISOString()} pid=${process.pid} ${reason}\n`); } catch {}
+}
 (function acquireLock() {
   fs.mkdirSync(path.dirname(LOCK_PATH), { recursive: true });
   let fd;
@@ -16,15 +20,22 @@ const LOCK_PATH = path.join(__dirname, "data", "server.lock");
     // O_CREAT | O_EXCL | O_WRONLY — fails if file already exists
     fd = fs.openSync(LOCK_PATH, fs.constants.O_CREAT | fs.constants.O_EXCL | fs.constants.O_WRONLY);
   } catch {
-    // Lock file exists — check if the owning process is still alive
+    // Lock file exists — check if the owning process is still alive AND is node.exe
+    // (PID-only check would falsely match if Windows reused the PID for another process)
     try {
       const pid = parseInt(fs.readFileSync(LOCK_PATH, "utf8").trim(), 10);
-      if (pid && !isNaN(pid)) {
-        try { process.kill(pid, 0); } catch { // process is dead — stale lock
-          fs.unlinkSync(LOCK_PATH);
-          fd = fs.openSync(LOCK_PATH, fs.constants.O_CREAT | fs.constants.O_EXCL | fs.constants.O_WRONLY);
-        }
-      } else {
+      let stale = !pid || isNaN(pid);
+      if (!stale) {
+        try {
+          process.kill(pid, 0);
+          if (process.platform === "win32") {
+            const { execFileSync } = require("child_process");
+            const out = execFileSync("tasklist", ["/FI", `PID eq ${pid}`, "/NH", "/FO", "CSV"], { encoding: "utf8", windowsHide: true });
+            if (!/node\.exe/i.test(String(out || ""))) stale = true;
+          }
+        } catch { stale = true; }
+      }
+      if (stale) {
         fs.unlinkSync(LOCK_PATH);
         fd = fs.openSync(LOCK_PATH, fs.constants.O_CREAT | fs.constants.O_EXCL | fs.constants.O_WRONLY);
       }
@@ -34,6 +45,7 @@ const LOCK_PATH = path.join(__dirname, "data", "server.lock");
   }
   if (fd === undefined) {
     console.error("\n  ERROR: Another server.js instance is already running. Exiting.\n");
+    logExit("lock-collision");
     process.exit(0);
   }
   fs.writeSync(fd, String(process.pid));
@@ -2238,8 +2250,10 @@ const server = app.listen(PORT, HOST, () => {
 server.on("error", (err) => {
   if (err.code === "EADDRINUSE") {
     console.error(`\n  ERROR: Port ${PORT} is already in use. Is the server already running?\n`);
+    logExit(`listen-error EADDRINUSE port=${PORT}`);
   } else {
     console.error(`\n  ERROR: Server failed to start: ${err.message}\n`);
+    logExit(`listen-error ${err.code || ""} ${err.message}`);
   }
   process.exit(1);
 });
@@ -2247,6 +2261,7 @@ server.on("error", (err) => {
 // ── Graceful shutdown ──────────────────────────────────────────────
 function shutdown(signal) {
   console.log(`\n  [${signal}] Shutting down gracefully...`);
+  logExit(`shutdown ${signal}`);
   server.close(() => {
     console.log("  HTTP server closed. Bye.");
     process.exit(0);
@@ -2254,6 +2269,7 @@ function shutdown(signal) {
   // Force-kill after 5 s to prevent zombie processes
   setTimeout(() => {
     console.error("  Forced exit after 5s timeout.");
+    logExit("forced-exit 5s-timeout");
     process.exit(1);
   }, 5000).unref();
 }
@@ -2263,10 +2279,13 @@ process.on("SIGTERM", () => shutdown("SIGTERM"));
 // ── 24/7 resilience ────────────────────────────────────────────────
 process.on("uncaughtException", (err) => {
   console.error(`[fatal] Uncaught exception: ${err.message}`);
+  logExit(`uncaughtException ${err.stack ? err.stack.split("\n").slice(0,3).join(" | ") : err.message}`);
   // Don't exit — keep serving other requests
 });
 process.on("unhandledRejection", (reason) => {
-  console.error(`[warn] Unhandled rejection: ${reason?.message || reason}`);
+  const msg = reason?.message || String(reason);
+  console.error(`[warn] Unhandled rejection: ${msg}`);
+  logExit(`unhandledRejection ${msg}`);
 });
 
 // Refresh gcloud project detection every hour so a changed `gcloud config set project`
