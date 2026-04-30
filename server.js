@@ -3,9 +3,44 @@ const path = require("path");
 const fs = require("fs");
 const os = require("os");
 const crypto = require("crypto");
-const { spawnSync } = require("child_process");
+const { spawn } = require("child_process");
 const { Ollama } = require("ollama");
 const yaml = require("js-yaml");
+
+// ── Single-instance lock (prevents duplicate processes on lag) ─────
+const LOCK_PATH = path.join(__dirname, "data", "server.lock");
+(function acquireLock() {
+  fs.mkdirSync(path.dirname(LOCK_PATH), { recursive: true });
+  let fd;
+  try {
+    // O_CREAT | O_EXCL | O_WRONLY — fails if file already exists
+    fd = fs.openSync(LOCK_PATH, fs.constants.O_CREAT | fs.constants.O_EXCL | fs.constants.O_WRONLY);
+  } catch {
+    // Lock file exists — check if the owning process is still alive
+    try {
+      const pid = parseInt(fs.readFileSync(LOCK_PATH, "utf8").trim(), 10);
+      if (pid && !isNaN(pid)) {
+        try { process.kill(pid, 0); } catch { // process is dead — stale lock
+          fs.unlinkSync(LOCK_PATH);
+          fd = fs.openSync(LOCK_PATH, fs.constants.O_CREAT | fs.constants.O_EXCL | fs.constants.O_WRONLY);
+        }
+      } else {
+        fs.unlinkSync(LOCK_PATH);
+        fd = fs.openSync(LOCK_PATH, fs.constants.O_CREAT | fs.constants.O_EXCL | fs.constants.O_WRONLY);
+      }
+    } catch {
+      // If we still can't acquire, another instance is truly running
+    }
+  }
+  if (fd === undefined) {
+    console.error("\n  ERROR: Another server.js instance is already running. Exiting.\n");
+    process.exit(0);
+  }
+  fs.writeSync(fd, String(process.pid));
+  fs.closeSync(fd);
+  // Clean up lock file on any exit (covers SIGINT/SIGTERM via existing shutdown handler)
+  process.on("exit", () => { try { fs.unlinkSync(LOCK_PATH); } catch {} });
+})();
 
 // ── Encryption helpers (AES-256-GCM) ─────────────────────────────
 const ENC_KEY_PATH = path.join(__dirname, "data", ".enc.key");
@@ -379,25 +414,32 @@ let _gcloudAccessTokenCache = { token: null, source: null, at: 0, errorAt: 0 };
 const GCLOUD_RETRY_INTERVAL = 5 * 60 * 1000; // retry failed detection every 5 min
 
 function runCommand(command, args, timeout = 8000) {
-  try {
-    const needsShell = process.platform === "win32" && /\.(cmd|bat)$/i.test(String(command));
-    // Quote the command on Windows when using shell mode — paths with spaces break otherwise
-    const cmd = needsShell && command.includes(" ") ? `"${command}"` : command;
-    const res = spawnSync(cmd, args, {
-      encoding: "utf8",
-      timeout,
-      windowsHide: true,
-      shell: needsShell,
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-    if (res.error || res.status !== 0) return null;
-    return String(res.stdout || "").trim();
-  } catch {
-    return null;
-  }
+  return new Promise((resolve) => {
+    try {
+      const needsShell = process.platform === "win32" && /\.(cmd|bat)$/i.test(String(command));
+      // On Windows, run .cmd/.bat files via cmd.exe /c to avoid shell+args deprecation warning
+      const [spawnCmd, spawnArgs] = needsShell
+        ? ["cmd.exe", ["/c", command, ...args]]
+        : [command, args];
+      const child = spawn(spawnCmd, spawnArgs, {
+        windowsHide: true,
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+      let stdout = "";
+      child.stdout.on("data", (d) => { stdout += d; });
+      const timer = setTimeout(() => { try { child.kill(); } catch {} resolve(null); }, timeout);
+      child.on("close", (code) => {
+        clearTimeout(timer);
+        resolve(code === 0 && stdout.trim() ? stdout.trim() : null);
+      });
+      child.on("error", () => { clearTimeout(timer); resolve(null); });
+    } catch {
+      resolve(null);
+    }
+  });
 }
 
-function findGcloudBinary() {
+async function findGcloudBinary() {
   // Return cached result if found, or retry after interval if previously failed
   if (_gcloudBinary) return _gcloudBinary;
   if (_gcloudBinary === null && Date.now() - _gcloudBinaryCheckedAt < GCLOUD_RETRY_INTERVAL) return null;
@@ -405,7 +447,7 @@ function findGcloudBinary() {
   // 1) Try PATH-based lookup
   const bins = process.platform === "win32" ? ["gcloud.cmd", "gcloud"] : ["gcloud"];
   for (const bin of bins) {
-    const out = runCommand(bin, ["--version"], 4000);
+    const out = await runCommand(bin, ["--version"], 4000);
     if (out) { _gcloudBinary = bin; return bin; }
   }
 
@@ -419,7 +461,7 @@ function findGcloudBinary() {
     ];
     for (const p of candidates) {
       if (fs.existsSync(p)) {
-        const out = runCommand(p, ["--version"], 4000);
+        const out = await runCommand(p, ["--version"], 4000);
         if (out) { _gcloudBinary = p; return p; }
       }
     }
@@ -430,38 +472,38 @@ function findGcloudBinary() {
   return null;
 }
 
-function getDetectedGeminiProjectId() {
+async function getDetectedGeminiProjectId() {
   // Return cached result if found, or retry after interval if previously failed
   if (_detectedGeminiProjectId) return _detectedGeminiProjectId;
   if (_detectedGeminiProjectId === null && Date.now() - _detectedGeminiProjectIdCheckedAt < GCLOUD_RETRY_INTERVAL) return null;
 
-  const bin = findGcloudBinary();
+  const bin = await findGcloudBinary();
   if (!bin) { _detectedGeminiProjectId = null; _detectedGeminiProjectIdCheckedAt = Date.now(); return null; }
-  const out = runCommand(bin, ["config", "get-value", "project"], 4000);
+  const out = await runCommand(bin, ["config", "get-value", "project"], 4000);
   if (!out) { _detectedGeminiProjectId = null; _detectedGeminiProjectIdCheckedAt = Date.now(); return null; }
   const trimmed = out.trim();
   if (!trimmed || trimmed === "(unset)" || trimmed === "unset") { _detectedGeminiProjectId = null; _detectedGeminiProjectIdCheckedAt = Date.now(); return null; }
   return _detectedGeminiProjectId = trimmed;
 }
 
-function getGeminiProjectId() {
-  return String(CFG.GEMINI_PROJECT_ID || "").trim() || getDetectedGeminiProjectId();
+async function getGeminiProjectId() {
+  return String(CFG.GEMINI_PROJECT_ID || "").trim() || await getDetectedGeminiProjectId();
 }
 
-function getGeminiAccessToken() {
+async function getGeminiAccessToken() {
   const envToken = String(CFG.GEMINI_ACCESS_TOKEN || "").trim();
   if (envToken) return { token: envToken, source: "env" };
   return getGcloudAccessToken();
 }
 
-function getGcloudAccessToken(forceRefresh = false) {
-  const bin = findGcloudBinary();
+async function getGcloudAccessToken(forceRefresh = false) {
+  const bin = await findGcloudBinary();
   const now = Date.now();
   if (!forceRefresh && _gcloudAccessTokenCache.token && now - _gcloudAccessTokenCache.at < 45 * 60 * 1000) {
     return { token: _gcloudAccessTokenCache.token, source: "gcloud" };
   }
   if (bin) {
-    const out = runCommand(bin, ["auth", "print-access-token"], 10000);
+    const out = await runCommand(bin, ["auth", "print-access-token"], 10000);
     if (out) {
       const token = out.trim();
       if (token && !token.startsWith("(")) {
@@ -716,18 +758,19 @@ function geminiBuildModelRow(model, quota, usage) {
 }
 
 async function _doGeminiUsageFetch() {
-  const projectId = getGeminiProjectId();
+  const projectId = await getGeminiProjectId();
   if (!projectId) return { configured: false };
   const projectSource = String(CFG.GEMINI_PROJECT_ID || "").trim() ? "env" : "gcloud";
-  let auth = getGeminiAccessToken();
+  let auth = await getGeminiAccessToken();
+  const hasGcloud = !!(await findGcloudBinary());
   if (!auth.token) {
     return {
       configured: true,
       source: "none",
-      hasGcloud: !!findGcloudBinary(),
+      hasGcloud,
       project: { id: projectId, source: projectSource, detected: projectSource === "gcloud" },
       projectId,
-      auth: { source: "none", hasEnvToken: false, hasGcloud: !!findGcloudBinary() },
+      auth: { source: "none", hasEnvToken: false, hasGcloud },
       tier: null,
       notes: ["No Google Cloud access token available"],
       models: [],
@@ -741,7 +784,7 @@ async function _doGeminiUsageFetch() {
 
   // If the env token returned 401/403, automatically retry with a fresh gcloud token
   if (!projectR.ok && (projectR.status === 401 || projectR.status === 403) && auth.source === "env") {
-    const gcloudAuth = getGcloudAccessToken();
+    const gcloudAuth = await getGcloudAccessToken();
     if (gcloudAuth.token) {
       auth = { ...gcloudAuth, fallback: true };
       projectR = await geminiFetchProject(projectId, auth.token);
@@ -749,7 +792,7 @@ async function _doGeminiUsageFetch() {
   }
   // If gcloud token also got 401, force-refresh (re-run gcloud auth print-access-token)
   if (!projectR.ok && (projectR.status === 401 || projectR.status === 403) && auth.source === "gcloud") {
-    const freshAuth = getGcloudAccessToken(true);
+    const freshAuth = await getGcloudAccessToken(true);
     if (freshAuth.token && freshAuth.token !== auth.token) {
       auth = freshAuth;
       projectR = await geminiFetchProject(projectId, auth.token);
@@ -761,10 +804,10 @@ async function _doGeminiUsageFetch() {
     return {
       configured: true,
       source: auth.source || "none",
-      hasGcloud: !!findGcloudBinary(),
+      hasGcloud,
       project: { id: projectId, number: null, name: null, source: projectSource, detected: projectSource === "gcloud" },
       projectId,
-      auth: { source: auth.source || "none", hasEnvToken: !!String(CFG.GEMINI_ACCESS_TOKEN || "").trim(), hasGcloud: !!findGcloudBinary() },
+      auth: { source: auth.source || "none", hasEnvToken: !!String(CFG.GEMINI_ACCESS_TOKEN || "").trim(), hasGcloud },
       tier: null,
       notes: ["Project metadata lookup failed"],
       models: [],
@@ -790,10 +833,10 @@ async function _doGeminiUsageFetch() {
     return {
       configured: true,
       source: auth.source || "none",
-      hasGcloud: !!findGcloudBinary(),
+      hasGcloud,
       project,
       projectId,
-      auth: { source: auth.source || "none", hasEnvToken: !!String(CFG.GEMINI_ACCESS_TOKEN || "").trim(), hasGcloud: !!findGcloudBinary() },
+      auth: { source: auth.source || "none", hasEnvToken: !!String(CFG.GEMINI_ACCESS_TOKEN || "").trim(), hasGcloud },
       tier: null,
       notes: ["Quota read failed", "Monitoring will not be queried if quota access is missing"],
       models: [],
@@ -839,14 +882,14 @@ async function _doGeminiUsageFetch() {
   return {
     configured: true,
     source: auth.source || "none",
-    hasGcloud: !!findGcloudBinary(),
+    hasGcloud,
     preferredModelId: String(_prefs.gemini_selected_model || "").trim() || null,
     project,
     projectId,
     auth: {
       source: auth.source || "none",
       hasEnvToken: !!String(CFG.GEMINI_ACCESS_TOKEN || "").trim(),
-      hasGcloud: !!findGcloudBinary(),
+      hasGcloud,
     },
     tier: null,
     notes: [
@@ -878,8 +921,9 @@ async function _doGeminiUsageFetch() {
   };
 }
 
-app.get("/api/config", (_req, res) => {
-  const geminiProjectId = getGeminiProjectId();
+app.get("/api/config", async (_req, res) => {
+  const geminiProjectId = await getGeminiProjectId();
+  const hasGcloud = !!(await findGcloudBinary());
   res.json({
     ollama: { configured: !!CFG.OLLAMA_API_KEY, local: CFG.OLLAMA_LOCAL_HOST, hasSessionCookie: !!CFG.OLLAMA_SESSION_COOKIE },
     claude: { configured: !!CFG.CLAUDE_SESSION_KEY },
@@ -891,8 +935,8 @@ app.get("/api/config", (_req, res) => {
       project: geminiProjectId ? { id: geminiProjectId } : null,
       projectId: geminiProjectId || "",
       hasAccessToken: !!String(CFG.GEMINI_ACCESS_TOKEN || "").trim(),
-      hasGcloud: !!findGcloudBinary(),
-      source: String(CFG.GEMINI_ACCESS_TOKEN || "").trim() ? "env" : (findGcloudBinary() ? "gcloud" : "none"),
+      hasGcloud,
+      source: String(CFG.GEMINI_ACCESS_TOKEN || "").trim() ? "env" : (hasGcloud ? "gcloud" : "none"),
     },
   });
 });
@@ -940,7 +984,7 @@ app.get("/api/gemini/usage", async (_req, res) => {
   try {
     res.json(await loadGeminiUsageSnapshot());
   } catch (e) {
-    res.json({ configured: !!getGeminiProjectId(), error: e.message });
+    res.json({ configured: !!CFG.GEMINI_PROJECT_ID, error: e.message });
   }
 });
 
@@ -1227,7 +1271,7 @@ async function loadGeminiUsageSnapshot() {
     })
     .catch(err => {
       if (_geminiCache) return { ..._geminiCache, stale: true, staleError: err.message };
-      return { configured: !!getGeminiProjectId(), error: err.message };
+      return { configured: !!CFG.GEMINI_PROJECT_ID, error: err.message };
     })
     .finally(() => { _geminiFetch = null; });
   return _geminiFetch;
@@ -1301,7 +1345,7 @@ function isSvcConfigured(svc) {
     case "claude": return !!CFG.CLAUDE_SESSION_KEY;
     case "ollama": return !!(CFG.OLLAMA_API_KEY || CFG.OLLAMA_SESSION_COOKIE);
     case "zai": return !!CFG.ZAI_AUTH_TOKEN;
-    case "gemini": return !!getGeminiProjectId();
+    case "gemini": return !!(String(CFG.GEMINI_PROJECT_ID || "").trim() || _detectedGeminiProjectId);
     default: return false;
   }
 }
@@ -2183,8 +2227,8 @@ const server = app.listen(PORT, HOST, () => {
   console.log(`  Claude    ${CFG.CLAUDE_SESSION_KEY ? "OK" : "--"}`);
   console.log(`  Ollama    ${CFG.OLLAMA_API_KEY ? "OK" : "--"}${CFG.OLLAMA_SESSION_COOKIE ? " (cookie)" : ""}`);
   console.log(`  Z.AI      ${CFG.ZAI_AUTH_TOKEN ? "OK" : "--"}`);
-  const geminiProject = getGeminiProjectId();
-  const geminiAuthSource = String(CFG.GEMINI_ACCESS_TOKEN || "").trim() ? "env" : (findGcloudBinary() ? "gcloud" : "none");
+  const geminiProject = String(CFG.GEMINI_PROJECT_ID || "").trim() || _detectedGeminiProjectId;
+  const geminiAuthSource = String(CFG.GEMINI_ACCESS_TOKEN || "").trim() ? "env" : (_gcloudBinary ? "gcloud" : "none");
   console.log(`  Gemini    ${geminiProject ? "OK" : "--"}${geminiProject ? ` (${geminiProject})` : ""}${geminiProject ? ` [${geminiAuthSource}]` : ""}`);
   console.log(`  Admin     ${CFG.ADMIN_TOKEN ? "OK" : "--"}\n`);
   // Pre-warm summary cache so the first YASB poll gets an instant response
