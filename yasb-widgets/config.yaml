@@ -14,6 +14,19 @@
       class_name: "ai-usage-group"
       widgets: ["ai_chatgpt", "ai_copilot", "ai_claude", "ai_ollama", "ai_zai", "ai_gemini", "ai_status"]
 
+  # Notes on no-flash callbacks (YASB v2.0.0):
+  #   - exec_options.use_shell defaults to true. With shell=true, YASB wraps
+  #     the callback in `cmd.exe /c \u2026`. The cmd.exe wrapper is console-subsystem
+  #     and YASB's callback path does NOT pass CREATE_NO_WINDOW, so a cmd
+  #     window flashes on every click. Setting use_shell: false avoids the
+  #     wrapper.
+  #   - With use_shell: false, the inner command must itself be GUI-subsystem
+  #     (no console). curl.exe is console-subsystem and would still flash, so
+  #     refresh goes through wscript.exe + refresh.vbs (silent MSXML2 GET) and
+  #     the dashboard URL goes through explorer.exe (which dispatches to the
+  #     default browser without a console).
+  #   - If you cloned this repo elsewhere, adjust the refresh.vbs path below.
+
   ai_chatgpt:
     type: "yasb.custom.CustomWidget"
     options:
@@ -28,10 +41,11 @@
         run_interval: 120000
         return_format: "json"
         hide_empty: true
+        use_shell: false
       callbacks:
         on_left: "toggle_label"
         on_middle: "do_nothing"
-        on_right: "exec curl.exe -sf http://localhost:3456/api/yasb/refresh"
+        on_right: 'exec wscript.exe "C:\yasb-ai-usages\yasb-widgets\refresh.vbs" "http://localhost:3456/api/yasb/refresh"'
 
   ai_copilot:
     type: "yasb.custom.CustomWidget"
@@ -47,10 +61,11 @@
         run_interval: 120000
         return_format: "json"
         hide_empty: true
+        use_shell: false
       callbacks:
         on_left: "toggle_label"
         on_middle: "do_nothing"
-        on_right: "exec curl.exe -sf http://localhost:3456/api/yasb/refresh"
+        on_right: 'exec wscript.exe "C:\yasb-ai-usages\yasb-widgets\refresh.vbs" "http://localhost:3456/api/yasb/refresh"'
 
   ai_claude:
     type: "yasb.custom.CustomWidget"
@@ -66,10 +81,11 @@
         run_interval: 120000
         return_format: "json"
         hide_empty: true
+        use_shell: false
       callbacks:
         on_left: "toggle_label"
         on_middle: "do_nothing"
-        on_right: "exec curl.exe -sf http://localhost:3456/api/yasb/refresh"
+        on_right: 'exec wscript.exe "C:\yasb-ai-usages\yasb-widgets\refresh.vbs" "http://localhost:3456/api/yasb/refresh"'
 
   ai_ollama:
     type: "yasb.custom.CustomWidget"
@@ -85,10 +101,11 @@
         run_interval: 120000
         return_format: "json"
         hide_empty: true
+        use_shell: false
       callbacks:
         on_left: "toggle_label"
         on_middle: "do_nothing"
-        on_right: "exec curl.exe -sf http://localhost:3456/api/yasb/refresh"
+        on_right: 'exec wscript.exe "C:\yasb-ai-usages\yasb-widgets\refresh.vbs" "http://localhost:3456/api/yasb/refresh"'
 
   ai_zai:
     type: "yasb.custom.CustomWidget"
@@ -104,10 +121,11 @@
         run_interval: 120000
         return_format: "json"
         hide_empty: true
+        use_shell: false
       callbacks:
         on_left: "toggle_label"
         on_middle: "do_nothing"
-        on_right: "exec curl.exe -sf http://localhost:3456/api/yasb/refresh"
+        on_right: 'exec wscript.exe "C:\yasb-ai-usages\yasb-widgets\refresh.vbs" "http://localhost:3456/api/yasb/refresh"'
 
 
   ai_gemini:
@@ -124,10 +142,11 @@
         run_interval: 120000
         return_format: "json"
         hide_empty: true
+        use_shell: false
       callbacks:
         on_left: "toggle_label"
         on_middle: "do_nothing"
-        on_right: "exec curl.exe -sf http://localhost:3456/api/yasb/refresh"
+        on_right: 'exec wscript.exe "C:\yasb-ai-usages\yasb-widgets\refresh.vbs" "http://localhost:3456/api/yasb/refresh"'
 
   ai_status:
     type: "yasb.custom.CustomWidget"
@@ -143,10 +162,11 @@
         run_interval: 5000
         return_format: "json"
         hide_empty: false
+        use_shell: false
       callbacks:
-        on_left: "exec cmd /c start http://localhost:3456"
+        on_left: "exec explorer.exe http://localhost:3456"
         on_middle: "do_nothing"
-        on_right: "exec curl.exe -sf http://localhost:3456/api/yasb/refresh"
+        on_right: 'exec wscript.exe "C:\yasb-ai-usages\yasb-widgets\refresh.vbs" "http://localhost:3456/api/yasb/refresh"'
 
 
 # ━━━ OPTION 2: Single combined widget (simpler) ━━━━━━━━━━━━━━━━
@@ -167,10 +187,11 @@
 #        run_interval: 120000
 #        return_format: "json"
 #        hide_empty: false
+#        use_shell: false
 #      callbacks:
 #        on_left: "toggle_label"
 #        on_middle: "do_nothing"
-#        on_right: "exec cmd /c start http://localhost:3456"
+#        on_right: "exec explorer.exe http://localhost:3456"
 #      label_shadow:
 #        enabled: true
 #        color: "black"

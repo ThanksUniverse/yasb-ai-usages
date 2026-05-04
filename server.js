@@ -1921,6 +1921,16 @@ function generateWidgetConfig(services, layout) {
   const PORT_NUM = isValidPort(CFG.PORT) ? Number.parseInt(CFG.PORT, 10) : 3456;
   const BASE = `http://localhost:${PORT_NUM}`;
 
+  // YASB v2.0.0's callback exec path does not pass CREATE_NO_WINDOW, and
+  // exec_options.use_shell defaults to true (wrapping callbacks in cmd.exe).
+  // Both pieces together make any `exec curl …` or `exec cmd /c …` callback
+  // flash a console window on click. We avoid both by setting use_shell:false
+  // and routing refresh through a silent VBS helper invoked by wscript.exe
+  // (GUI-subsystem) and the dashboard URL through explorer.exe.
+  const REFRESH_VBS = path.join(__dirname, "yasb-widgets", "refresh.vbs");
+  const REFRESH_URL = `${BASE}/api/yasb/refresh`;
+  const REFRESH_CALLBACK = `exec wscript.exe "${REFRESH_VBS}" "${REFRESH_URL}"`;
+
   const widgetDefs = {};
 
   if (layout === "grouped") {
@@ -1997,11 +2007,12 @@ function generateWidgetConfig(services, layout) {
           run_interval: 120000,
           return_format: "json",
           hide_empty: true,
+          use_shell: false,
         },
         callbacks: {
           on_left: "toggle_label",
           on_middle: "do_nothing",
-          on_right: `exec curl.exe -sf ${BASE}/api/yasb/refresh`,
+          on_right: REFRESH_CALLBACK,
         },
       },
     };
@@ -2021,11 +2032,12 @@ function generateWidgetConfig(services, layout) {
         run_interval: 5000,
         return_format: "json",
         hide_empty: false,
+        use_shell: false,
       },
       callbacks: {
-        on_left: `exec cmd /c start ${BASE}`,
+        on_left: `exec explorer.exe ${BASE}`,
         on_middle: "do_nothing",
-        on_right: `exec curl.exe -sf ${BASE}/api/yasb/refresh`,
+        on_right: REFRESH_CALLBACK,
       },
     },
   };
